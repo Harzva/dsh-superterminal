@@ -1,0 +1,23 @@
+name: Check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm install --global pnpm@11.19.0
+      - run: npm ci --legacy-peer-deps --ignore-scripts
+      - run: pnpm check
+      - run: pnpm run pack:dsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-terminal-package
+          path: artifacts/*.tgz

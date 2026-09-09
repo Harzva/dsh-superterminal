@@ -1,0 +1,6 @@
+# Development uses the checked-in npm lockfile; running checks must not install
+# peer packages or rewrite dependencies implicitly under pnpm 11.
+verifyDepsBeforeRun: false
+autoInstallPeers: false
+allowBuilds:
+  esbuild: true
