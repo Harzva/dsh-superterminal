@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import { join } from 'node:path'
+import { installedVersion } from './agent-inventory.mjs'
 import { requests } from './remote.mjs'
 import { localPtyCompatibility } from './pty-compat.mjs'
 
@@ -37,6 +38,28 @@ const launchers = {
   shell: { label: 'Shell', command: process.platform === 'win32' ? 'pwsh' : 'zsh', args: process.platform === 'win32' ? ['-NoLogo'] : ['-f'] },
   codex: { label: 'Codex', command: 'codex', args: ['-c', 'cli_auth_credentials_store="file"'] },
   claude: { label: 'Claude Code', command: 'claude', args: [] },
+  kimi: { label: 'Kimi Code', command: 'kimi', args: [] },
+  kimicode: { label: 'kimicode', command: 'kimicode', args: [] },
+  pi: { label: 'Pi Agent', command: 'pi', args: [] },
+  piagent: { label: 'Pi Agent (piagent)', command: 'piagent', args: [] },
+  gemini: { label: 'Gemini CLI', command: 'gemini', args: [] },
+  opencode: { label: 'OpenCode', command: 'opencode', args: [] },
+  qodercli: { label: 'Qoder CLI', command: 'qodercli', args: [] },
+  qoder: { label: 'Qoder', command: 'qoder', args: [] },
+  hermes: { label: 'Hermes', command: 'hermes', args: [] },
+  deepseek: { label: 'DeepSeek CLI', command: 'deepseek', args: [] },
+  aider: { label: 'Aider', command: 'aider', args: [] },
+  goose: { label: 'Goose', command: 'goose', args: [] },
+  qwen: { label: 'Qwen Code', command: 'qwen', args: [] },
+  amp: { label: 'Amp', command: 'amp', args: [] },
+  copilot: { label: 'Copilot CLI', command: 'copilot', args: [] },
+  omp: { label: 'Oh My Pi', command: 'omp', args: [] },
+  agy: { label: 'Antigravity', command: 'agy', args: [] },
+  atomcode: { label: 'AtomCode', command: 'atomcode', args: [] },
+  mimocode: { label: 'MiMo Code', command: 'mimocode', args: [] },
+  likecode: { label: 'LikeCode', command: 'likecode', args: [] },
+  zcode: { label: 'ZCode', command: 'zcode', args: [] },
+
 }
 
 /** Raw PTYs never enter DSH's conversation log or model context. */
@@ -85,6 +108,68 @@ export class NativeTerminals {
       rows: entry.rows, cols: entry.cols, writer: entry.writer, exitCode: entry.exitCode ?? null }
   }
 
+  // Optional synchronous Host-only observation. No output, cwd, writer lease,
+  // credentials, or input controls cross this interface.
+  supervisionSnapshot({ sessionId }) {
+    const owner = this.ctx.agents.get(sessionId)
+    if (!owner || owner.id !== sessionId) return { status: 'unavailable', terminals: [] }
+    this.current(owner)
+    const state = this.owners.get(owner)
+    const terminals = state ? [...state.entries.values()].filter(entry => !entry.dismissed).slice(0, 12).map(entry => ({
+      id: entry.id, launcher: entry.launcher, state: entry.state,
+      exitCode: entry.exitCode ?? null,
+    })) : []
+    return { status: terminals.length ? 'ready' : 'empty', terminals }
+  }
+
+  async inventory(owner, request, signal) {
+    requests.inventory.parse(request)
+    this.current(owner)
+    const agents = await Promise.all(Object.entries(launchers).map(async ([id, item]) => {
+      signal?.throwIfAborted()
+      let executable = null
+      try { executable = await this.ctx.subprocess.resolveExecutable(item.command, undefined, signal) } catch {}
+      const isolated = ['codex', 'claude', 'kimi', 'kimicode', 'pi', 'piagent'].includes(id)
+      return { id, label: item.label, available: !!executable, executable,
+        version: executable ? await installedVersion(executable) : null,
+        configuration: isolated ? '工作区独立配置' : '本机配置（受 DSH 权限限制）',
+        account: id === 'shell' ? '不适用' : '未验证 · 在原生 CLI 中查看或登录', subscription: id === 'shell' ? '不适用' : '未知 · 尚无官方查询适配',
+        readiness: executable ? (id === 'shell' ? '可启动' : '可启动 · 模型请求未验证') : '未安装或不在 PATH' }
+    }))
+    this.current(owner); signal?.throwIfAborted()
+    return { agents, checkedAt: new Date().toISOString() }
+  }
+
+  async suggest(owner, request, signal) {
+    const { prompt } = requests.suggest.parse(request)
+    const state = this.owned(owner)
+    if (state.suggesting) throw new Error('当前会话正在生成建议，请稍候')
+    const llm = this.ctx.get('llm')
+    const route = this.ctx.get('agentDefaultModel')?.currentSelection?.() ?? owner.options
+    if (!llm || !route?.provider || !route?.model) throw new Error('当前 DSH 未配置可用模型')
+    state.suggesting = true
+    const controller = new AbortController()
+    state.suggestionController = controller
+    const timeout = setTimeout(() => controller.abort(), 60000)
+    const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+    try {
+      let text = ''
+      for await (const chunk of llm.stream({ provider: route.provider, model: route.model, sessionId: owner.id,
+        signal: combined, maxTokens: 2048,
+        system: '你是 DSH 智能终端助手。只提供建议，不执行工具。用中文简洁回答：目的、可复制的命令代码块、验证方式。危险或破坏性操作说明影响；信息不足时说明缺失信息。你看不到终端输出、文件或账号状态，不得假装看过。终端快照只说明进程状态。',
+        messages: [{ id: randomUUID(), role: 'user', source: { kind: 'plugin', plugin: 'dsh-terminal' },
+          content: [{ type: 'text', text: prompt + '\n当前进程元数据：' + JSON.stringify(this.supervisionSnapshot({ sessionId: owner.id })) }] }],
+      })) {
+        combined.throwIfAborted(); this.current(owner)
+        if (chunk?.type === 'text-delta') text += chunk.text
+        if (text.length > 12000) throw new Error('建议过长，请缩小问题范围')
+      }
+      this.current(owner)
+      if (!text.trim()) throw new Error('模型未返回建议，请重试')
+      return { text: text.trim(), model: route.model }
+    } finally { clearTimeout(timeout); state.suggesting = false; state.suggestionController = null }
+  }
+
   async list(owner, request, signal) {
     requests.list.parse(request)
     signal?.throwIfAborted()
@@ -95,7 +180,7 @@ export class NativeTerminals {
     }))
     this.current(owner)
     return { terminals: [...state.entries.values()].filter(item => !item.dismissed).map(item => this.summary(item)),
-      launchers: available, cwd: this.ctx.sandboxPolicy.resolve({ session: owner.session }).workspaceRoot }
+      launchers: available.filter(item => item.available), cwd: this.ctx.sandboxPolicy.resolve({ session: owner.session }).workspaceRoot }
   }
 
   async open(owner, request, signal) {
@@ -124,7 +209,7 @@ export class NativeTerminals {
       await this.ptyCompatibility.assertProvider(this.ctx.subprocess)
       this.current(owner)
       signal.throwIfAborted()
-      const launch = launchers[entry.launcher]
+      const launch = Object.hasOwn(launchers, entry.launcher) ? launchers[entry.launcher] : { command: entry.launcher, args: [] }
       const executable = await this.ctx.subprocess.resolveExecutable(launch.command, undefined, signal)
       this.current(owner)
       signal.throwIfAborted()
@@ -134,12 +219,13 @@ export class NativeTerminals {
       const shell = await this.ctx.subprocess.resolveExecutable('sh', undefined, signal)
       this.current(owner)
       signal.throwIfAborted()
-      if (entry.launcher !== 'shell') {
+      const stateConfig = { codex: ['codex', 'CODEX_HOME'], claude: ['claude', 'CLAUDE_CONFIG_DIR'], kimi: ['kimi', 'KIMI_CODE_HOME'], kimicode: ['kimi', 'KIMI_CODE_HOME'], pi: ['pi', 'PI_CODING_AGENT_DIR'], piagent: ['pi', 'PI_CODING_AGENT_DIR'] }[entry.launcher]
+      if (stateConfig) {
         const base = join(policy.workspaceRoot, '.dsh-terminal')
-        const state = join(base, entry.launcher)
-        env[entry.launcher === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'] = state
+        const state = join(base, stateConfig[0])
+        env[stateConfig[1]] = state
         if (entry.launcher === 'codex') env.CODEX_SQLITE_HOME = state
-        else env.DISABLE_AUTOUPDATER = '1'
+        if (entry.launcher === 'claude') env.DISABLE_AUTOUPDATER = '1'
         argv = [shell, '-c', CLI_STATE_BOOTSTRAP, 'dsh-terminal-launch', base, state, ...argv]
       } else argv = [shell, '-c', TERMINAL_BOOTSTRAP, 'dsh-terminal-launch', ...argv]
       if (policy.mode !== 'danger-full-access') {
@@ -289,6 +375,7 @@ export class NativeTerminals {
   }
 
   async disposeOwner(owner, state) {
+    state.suggestionController?.abort()
     state.disposed = true
     for (const entry of state.entries.values()) entry.controller.abort(new Error('DSH owner disposed'))
     // Allocation promises must settle before final process cleanup, including late handles.

@@ -139,3 +139,54 @@ test('provider incompatibility rejects before allocation; handle incompatibility
   assert.equal(handle.handles[0].terminated, true)
   await handle.registry.stop()
 })
+
+test('supervision snapshot is scoped to the current owner and excludes output and control secrets', async () => {
+  const f = fixture()
+  try {
+    const terminal = await open(f.registry, f.owner)
+    f.handles[0].output.write('PRIVATE_OUTPUT_FIXTURE')
+    await f.registry.claim(f.owner, { terminalId: terminal.id, viewerId: 'private-viewer' })
+    const snapshot = f.registry.supervisionSnapshot({ sessionId: f.owner.id })
+    assert.deepEqual(snapshot, { status: 'ready', terminals: [{ id: terminal.id, launcher: 'shell', state: 'running', exitCode: null }] })
+    assert.equal(f.registry.supervisionSnapshot({ sessionId: 'foreign' }).status, 'unavailable')
+    f.agents.set(f.owner.id, { ...f.owner })
+    assert.deepEqual(f.registry.supervisionSnapshot({ sessionId: f.owner.id }), { status: 'empty', terminals: [] })
+    assert.equal(f.handles[0].writes.length, 0)
+  } finally { await f.registry.stop() }
+})
+
+test('discovered agent launchers and custom local CLI preserve argv and sandbox without Claude configuration', async () => {
+  const f = fixture()
+  try {
+    const list = await f.registry.list(f.owner, {})
+    assert.ok(list.launchers.some(item => item.id === 'kimi'))
+    assert.ok(list.launchers.some(item => item.id === 'pi'))
+    for (const launcher of ['kimi', 'pi', 'my-agent']) {
+      await f.registry.open(f.owner, { launcher, requestId: launcher, rows: 24, cols: 80 })
+      const spec = f.handles.at(-1).spec
+      assert.equal(spec.argv.at(-1), '/bin/' + launcher)
+      assert.equal(spec.env.CLAUDE_CONFIG_DIR, undefined)
+      assert.equal(spec.env.CODEX_HOME, undefined)
+      if (launcher === 'kimi') assert.ok(spec.env.KIMI_CODE_HOME.endsWith('/.dsh-terminal/kimi'))
+      if (launcher === 'pi') assert.ok(spec.env.PI_CODING_AGENT_DIR.endsWith('/.dsh-terminal/pi'))
+    }
+    await assert.rejects(f.registry.open(f.owner, { launcher: 'pi;touch attack', requestId: 'bad', rows: 24, cols: 80 }))
+    await assert.rejects(f.registry.open(f.owner, { launcher: '../pi', requestId: 'bad2', rows: 24, cols: 80 }))
+  } finally { await f.registry.stop() }
+})
+
+test('smart advice sends only explicit prompt and scoped metadata, never PTY output or commands', async () => {
+  const f = fixture(); let captured
+  f.registry.ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'test', model: 'test' }) } : name === 'llm' ? { async *stream(input) { captured = input; yield { type: 'text-delta', text: '建议草稿' } } } : undefined
+  try {
+    await f.registry.open(f.owner, { launcher: 'shell', requestId: 'smart-shell', rows: 24, cols: 80 })
+    f.registry.append([...f.registry.owners.get(f.owner).entries.values()][0], 'PRIVATE_PTY_OUTPUT')
+    const result = await f.registry.suggest(f.owner, { prompt: '查看端口' })
+    assert.equal(result.text, '建议草稿')
+    assert.ok(JSON.stringify(captured.messages).includes('查看端口'))
+    assert.ok(!JSON.stringify(captured.messages).includes('PRIVATE_PTY_OUTPUT'))
+    assert.equal(f.handles[0].writes.length, 0)
+    f.agents.delete(f.owner.id)
+    await assert.rejects(f.registry.suggest(f.owner, { prompt: 'foreign' }))
+  } finally { await f.registry.stop() }
+})

@@ -4,7 +4,9 @@ const boundedId = z.string().min(1).max(128)
 const dimensions = { rows: z.number().int().min(2).max(500), cols: z.number().int().min(10).max(1000) }
 export const requests = {
   list: z.object({}).strict(),
-  open: z.object({ launcher: z.enum(['shell', 'codex', 'claude']), requestId: boundedId, ...dimensions }).strict(),
+  inventory: z.object({}).strict(),
+  suggest: z.object({ prompt: z.string().trim().min(1).max(4000) }).strict(),
+  open: z.object({ launcher: z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/), requestId: boundedId, ...dimensions }).strict(),
   read: z.object({ terminalId: boundedId, offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
   claim: z.object({ terminalId: boundedId, viewerId: boundedId }).strict(),
   write: z.object({ terminalId: boundedId, lease: boundedId, sequence: z.number().int().nonnegative(), data: z.string().min(1).max(65536) }).strict(),

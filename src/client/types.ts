@@ -1,3 +1,4 @@
+export interface AgentRecord { id: string; label: string; available: boolean; executable: string | null; version: string | null; configuration: string; account: string; subscription: string; readiness: string }
 export interface TerminalSummary {
   id: string;
   launcher: string;
@@ -17,6 +18,8 @@ export interface TerminalLauncher {
 }
 
 export interface TerminalBridge {
+  inventory(): Promise<{agents: AgentRecord[]; checkedAt:string}>;
+  suggest(input:{prompt:string}): Promise<{text:string;model:string}>;
   list(): Promise<{ terminals: TerminalSummary[]; launchers: TerminalLauncher[]; cwd: string }>;
   open(input: { launcher: string; rows: number; cols: number; requestId: string }): Promise<TerminalSummary>;
   read(input: { terminalId: string; offset: number }): Promise<{
