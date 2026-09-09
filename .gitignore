@@ -1,0 +1,9 @@
+node_modules/
+lib/
+artifacts/
+.verify/
+.dsh-terminal/
+.DS_Store
+.env
+.env.*
+*.local.*
