@@ -84,7 +84,7 @@ function WorkspaceSession({ bridge, sessionId }: TerminalWorkspaceProps) {
         setActionError('');
       }
     } catch (error) {
-      if (aliveRef.current && sequence === listSequence.current) setListError(/Failed to fetch|NetworkError|fetch failed/i.test(errorText(error)) ? '终端服务连接中断，正在重连。已有画面暂存，输入暂停；请勿重复启动。' : `终端列表暂不可用：${errorText(error)}`);
+      if (aliveRef.current && sequence === listSequence.current) setListError(/Failed to fetch|NetworkError|fetch failed/i.test(errorText(error)) ? '终端服务连接中断，正在重连。已有画面暂存，输入暂停；请勿重复启动。' : '暂时无法加载终端列表，正在重试。');
     } finally {
       if (aliveRef.current && sequence === listSequence.current) setLoading(false);
     }
@@ -151,7 +151,7 @@ function WorkspaceSession({ bridge, sessionId }: TerminalWorkspaceProps) {
     } catch (error) {
       if (!aliveRef.current) return;
       setOpening(previous => ({ ...previous, [index]: 'uncertain' }));
-      setActionError(`启动未完成：${errorText(error)}。未自动重试，请刷新列表确认是否已创建终端。`);
+      setActionError('尚未确认启动结果。请先刷新列表，确认终端是否已打开。');
     }
   };
 
@@ -307,7 +307,7 @@ function WorkspaceSession({ bridge, sessionId }: TerminalWorkspaceProps) {
         {zoomed && <button className="dt-toolbar-button" onClick={() => setZoomed(null)}>还原布局</button>}
         <button className="dt-toolbar-button" onClick={() => { void refresh(true); }} disabled={loading}>刷新列表</button>
       </header>
-      <div className="dt-workspace-context"><span className="dt-context-label">工作目录</span><span className="dt-cwd" title={cwd}>{cwd || (loading ? '读取中…' : '暂不可用')}</span><span className="dt-context-hint">会话内独立进程</span></div>
+      <div className="dt-workspace-context"><span className="dt-context-label">工作目录</span><span className="dt-cwd" title={cwd}>{cwd || (loading ? '读取中…' : '暂不可用')}</span><span className="dt-context-hint">当前会话</span></div>
       {showManager && <AgentManager bridge={bridge} onClose={() => setShowManager(false)} onLaunch={id => {
         const index = !slots[selectedSlot] && !opening[selectedSlot] && leafSlots(layout).includes(selectedSlot) ? selectedSlot : slots.findIndex((item, i) => !item && !opening[i] && leafSlots(layout).includes(i));
         if (index < 0) { setActionError('请先增加一个空窗格，再启动智能体'); setShowManager(false); return; }
@@ -345,7 +345,7 @@ function WorkspaceSession({ bridge, sessionId }: TerminalWorkspaceProps) {
                 aria-label={`收起空窗格 ${index + 1}`} title="收起此空窗格" onClick={() => hideEmpty(index)}>×</button>}
               <span className="dt-empty-prompt">&gt;_</span>
               <strong>{opening[index] === 'pending' ? '正在启动…' : opening[index] === 'uncertain' ? '等待确认启动结果' : '在这里，开始工作。'}</strong>
-              <span className="dt-empty-description">选择一个智能体，或打开 Shell</span>
+              <span className="dt-empty-description">选择智能体或 Shell 开始工作</span>
               <div className="dt-launchers">{launchers.filter(item => ['shell','codex','claude','kimi'].includes(item.id)).map(launcher => <button key={launcher.id}
                 disabled={!launcher.available || Boolean(opening[index]) || loading || Boolean(listError)}
                 title={launcher.available ? `启动 ${launcher.label}` : `${launcher.label} 尚未安装或不可用`}

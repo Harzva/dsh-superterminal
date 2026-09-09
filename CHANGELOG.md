@@ -1,30 +1,24 @@
-# v0.1.0-alpha.3 — DSH SuperTerminal
+# 更新记录
 
-- Introduce the SuperTerminal product name while retaining compatible package/RPC identifiers.
-- Redesign the terminal workspace, searchable agent library, expandable configuration details, and right-side assistant.
-- Detect known installed CLIs and available npm package versions; add Kimi/Pi workspace state directories and bundled agent icons.
-- Add explicit DSH model advice with independently copyable command drafts and scoped process metadata.
-- Add optional Supervisor observation and clearer connection-loss UI.
-- Account validity, subscriptions, native-agent model workflows, and process survival across Host restart remain unverified or unsupported.
+## 0.1.0-alpha.4
 
-Validation: build, TypeScript, 19 focused tests; real local model advice and management-to-terminal launch. Official isolated artifact verification is recorded at release time.
+- 统一面向用户的界面提示与使用说明。
+- 连接、启动和输入失败时显示下一步操作，不再直接展示底层错误。
+- 简化账号、订阅和运行状态的表达，保留未确认状态。
+- 精简发布说明，优化搜索框细节。
 
-# Changelog
+## 0.1.0-alpha.3
+
+- 正式使用 DSH SuperTerminal 名称，兼容原有插件安装。
+- 重新设计多终端工作台、智能体目录和右侧助手。
+- 增加本机智能体检测、可识别版本与智能体图标。
+- 增加 DSH 智能建议与可单独复制的命令草稿。
+- 支持在当前工作区启动 Kimi 和 Pi，并使用独立配置。
 
 ## 0.1.0-alpha.2
 
-- Introduces resizable split layouts with stable terminal components and live PTY resizing.
-- Adds DSH composer and /terminal entry points alongside the sidebar entry.
-- Packages a Host/Client DSH bundle with an explicit local-provider compatibility boundary.
-- Preserves session ownership, sandbox confinement, writer leases, bounded output, and managed cleanup.
+- 增加可拖动的分屏布局与单格放大。
+- 增加 DSH 输入栏和 /terminal 入口。
+- 支持会话内独立终端与关闭清理。
 
-Verification (2026-09-09):
-
-- Build, strict client TypeScript, and 16 focused tests passed.
-- A fresh official DSH 0.1.1-rc.2 installation accepted the exact release tarball in an isolated profile. All five DSH peers resolved to the same official runtime instances.
-- Six real PTYs passed unique-PID, xterm-256color, ANSI/Chinese, and resize/stty checks under the unchanged workspace-write policy. Test PTYs and the server stopped normally.
-- Browser checks exercised the composer button, /terminal menu, split presets, pointer dragging, keyboard resizing, double-click equalization, and independent terminal closure. The retained Shell PID stayed unchanged through layout changes.
-- Extension preflight passed. Its generated-client observer/URL warnings originate in bundled third-party dependencies; the plugin does not rewrite DSH's product DOM.
-- DSH 0.1.2-rc.1 was tested and rejected because a required sandbox-policy export is absent; it is not included in the supported peer range.
-
-Release package SHA-256: 885e8dec1441fa31dab5171e1fdd0af50bdf50ab846120e1b0e5c902f6e07ea7.
+当前支持 macOS 上的官方 DSH 0.1.1-rc.2。账号、套餐和智能体连接状态仍需在相应智能体中查看。

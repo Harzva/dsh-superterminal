@@ -16,7 +16,8 @@ await build({
   jsx: 'automatic',
   external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@deepseek-ai/dsh-client-runtime/client'],
   sourcemap: false,
-  minify: false,
+  minify: true,
+  legalComments: 'none',
   banner: { js: 'window.__ModuleLoader__.load({ id: "@harzva/dsh-terminal", factory: (require) => { var module = { exports: {} }; var exports = module.exports;' },
   footer: { js: 'return module.exports; } });' },
   plugins: [{

@@ -1,6 +1,6 @@
 {
   "name": "@harzva/dsh-terminal",
-  "version": "0.1.0-alpha.3",
+  "version": "0.1.0-alpha.4",
   "private": true,
   "type": "module",
   "description": "DSH SuperTerminal: resizable terminals, local agent library, and DSH-powered command advice",

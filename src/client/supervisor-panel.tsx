@@ -18,7 +18,7 @@ export function SupervisorPanel({ sessionId }: { sessionId: string }) {
       const next = result.states?.[sessionId];
       if (!next || typeof next !== 'object') throw new Error('未找到当前会话的监督状态');
       const checked: State = { suggestion: typeof next.suggestion === 'string' ? next.suggestion.slice(0, 4000) : '',
-        suggestError: typeof next.suggestError === 'string' ? next.suggestError.slice(0, 1000) : '', suggesting: next.suggesting === true };
+        suggestError: next.suggestError ? '暂时无法生成建议，请稍后重试。' : '', suggesting: next.suggesting === true };
       if (!controller.signal.aborted) setState(checked);
       return checked;
     };
@@ -37,10 +37,10 @@ export function SupervisorPanel({ sessionId }: { sessionId: string }) {
             if ((round > 0 && !next.suggestion && !next.suggestError && Date.now() - started < 30000) || next.suggesting) {
               timer = setTimeout(() => { void poll(); }, 1000);
             } else { clearTimeout(timeout); setBusy(false); }
-          } catch (cause) { if (!controller.signal.aborted) { clearTimeout(timeout); setError(cause instanceof Error ? cause.message : '监督状态读取失败'); setBusy(false); } }
+          } catch (cause) { if (!controller.signal.aborted) { clearTimeout(timeout); setError('暂时无法读取建议，请稍后重试。'); setBusy(false); } }
         };
         await poll();
-      } catch (cause) { if (!controller.signal.aborted) { clearTimeout(timeout); setError(cause instanceof Error ? cause.message : '监督请求失败'); setBusy(false); } }
+      } catch (cause) { if (!controller.signal.aborted) { clearTimeout(timeout); setError('暂时无法生成建议，请稍后重试。'); setBusy(false); } }
     };
     const onTimeout = () => { setBusy(false); setError('本次读取已超时，可关闭后重新查看；不会自动重新请求模型。'); };
     controller.signal.addEventListener('abort', onTimeout, { once: true });
@@ -48,9 +48,9 @@ export function SupervisorPanel({ sessionId }: { sessionId: string }) {
     return () => { clearTimeout(timeout); clearTimeout(timer); controller.signal.removeEventListener('abort', onTimeout); controller.abort(); };
   }, [sessionId, round]);
   return <aside className="dt-supervisor-panel" aria-label="DSH Supervisor">
-    <div><strong>DSH Supervisor</strong><span>当前会话 · 只读进程观察</span>
+    <div><strong>DSH Supervisor</strong><span>当前会话 · 运行状态</span>
       <button className="dt-toolbar-button" disabled={busy} onClick={() => setRound(value => value + 1)}>{busy ? '读取中…' : '生成一次建议'}</button></div>
     <p role="status">{error || state.suggestError || state.suggestion || (busy ? '正在读取监督状态…' : '尚无建议。点击生成时会使用 DSH 已配置的模型。')}</p>
-    <small>提供终端类型、进程状态和退出码；未共享终端输出，不自动发送输入。建议不代表任务已验收。</small>
+    <small>根据终端运行状态提供建议，不读取终端内容。任务是否完成仍需核对。</small>
   </aside>;
 }

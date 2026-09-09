@@ -60,7 +60,7 @@ class TerminalBoundary extends React.Component {
   state = { error: null }
   static getDerivedStateFromError(error) { return { error: String(error?.message ?? error) } }
   render() {
-    if (this.state.error) return React.createElement('div', { role: 'alert', style: { padding: 20 } }, `终端视图暂不可用：${this.state.error}`)
+    if (this.state.error) return React.createElement('div', { role: 'alert', style: { padding: 20 } }, '暂时无法显示终端，请关闭后重新打开。')
     return this.props.children
   }
 }

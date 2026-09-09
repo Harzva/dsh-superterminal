@@ -98,7 +98,7 @@ async function rpc(method, payload) {
     body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method, payload }),
     signal: AbortSignal.timeout(10000),
   })
-  assert.equal(response.ok, true, `Gateway HTTP ${response.status}`)
+  if (!response.ok) throw new Error(`Verification gateway ${method}: HTTP ${response.status}`)
   const result = (await response.json()).result
   if (!result?.ok) throw new Error(`${method}: ${result?.error?.message ?? 'missing result'}`)
   return result.value

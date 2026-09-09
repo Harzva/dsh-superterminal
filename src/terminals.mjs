@@ -132,9 +132,9 @@ export class NativeTerminals {
       const isolated = ['codex', 'claude', 'kimi', 'kimicode', 'pi', 'piagent'].includes(id)
       return { id, label: item.label, available: !!executable, executable,
         version: executable ? await installedVersion(executable) : null,
-        configuration: isolated ? '工作区独立配置' : '本机配置（受 DSH 权限限制）',
-        account: id === 'shell' ? '不适用' : '未验证 · 在原生 CLI 中查看或登录', subscription: id === 'shell' ? '不适用' : '未知 · 尚无官方查询适配',
-        readiness: executable ? (id === 'shell' ? '可启动' : '可启动 · 模型请求未验证') : '未安装或不在 PATH' }
+        configuration: isolated ? '当前工作区独立配置' : '本机配置',
+        account: id === 'shell' ? '不适用' : '请打开智能体查看登录状态', subscription: id === 'shell' ? '不适用' : '请在智能体中查看套餐与额度',
+        readiness: executable ? (id === 'shell' ? '可启动' : '可以启动，连接状态待确认') : '未检测到安装' }
     }))
     this.current(owner); signal?.throwIfAborted()
     return { agents, checkedAt: new Date().toISOString() }

@@ -1,97 +1,56 @@
 # DSH SuperTerminal
 
-Native, resizable terminal panes for DeepSeek Harness. Run installed agent CLIs inside the current DSH session, including Codex, Claude Code, Kimi Code, and Pi.
+在一个 DSH 工作台中运行多个智能体：自由分屏、管理本机工具，并随时向终端助手提问。
 
-**DSH 原生多面板终端**：拖动调节大小，左右／上下拆分，用不同窗格承载不同 CLI。显示名 **DSH SuperTerminal**，包名 **@harzva/dsh-terminal**，仓库 **Harzva/dsh-superterminal**。
+## 开始使用
 
-The product is named **DSH SuperTerminal**. The package and loader identifiers remain `@harzva/dsh-terminal` and `dsh-terminal` for upgrade compatibility.
+当前支持 **macOS、Node.js 24+ 和官方 DSH 0.1.1-rc.2**。暂不支持 Windows、远程终端或其他 DSH 版本。
 
-This is an **alpha** for a local macOS DSH Web runtime. Agent scheduling and Harvis integration are not included.
+下载并安装发布包，然后重启所选 DSH 配置：
 
-## Install
+```sh
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.4/harzva-dsh-terminal-0.1.0-alpha.4.tgz
+```
 
-Use the prebuilt GitHub Release package. No source build hook is required:
+在 DSH 输入栏点击 **终端**，或输入 **/terminal** 并选择“打开终端”。从旧版 DSH Terminal 升级时继续使用同一插件，无需额外安装第二份。
 
-~~~sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.3/harzva-dsh-terminal-0.1.0-alpha.3.tgz
-~~~
+## 按你的方式安排工作
 
-Restart the selected DSH profile after installation. The source checkout does not contain built lib/ files; the github:Harzva/dsh-superterminal shortcut is not the advertised install path.
+- **自由分屏**：选择双栏、主次布局、六格或十二格，也可以继续拆分窗格。
+- **拖动调节**：拖动分隔线调整大小，双击均分；放大单个窗格以专注工作。
+- **智能体目录**：搜索已安装工具，查看可识别的版本、使用配置和安装详情。
+- **独立终端**：打开 Shell、Codex、Claude Code、Kimi、Pi 等本机工具；其他命令可从“使用其他命令”输入。
+- **终端助手**：描述目标或粘贴报错，获得命令建议与核对步骤。复制命令后，由你决定在哪里执行。
 
-The compatibility target is **DSH 0.1.1-rc.2**, Node.js 24+, the official local subprocess provider, and a supported DSH sandbox. Shell needs zsh; known agent launchers appear only when their executables are on the DSH process's PATH; other executables can be entered by command name. All launchers require POSIX sh; Codex/Claude/Kimi/Pi initialization also uses standard filesystem utilities. Windows, remote subprocess providers, and DSH 0.1.2-rc.1 are not supported by this alpha. The latter changes a required sandbox-policy export.
+返回 DSH 或切换布局会保留正在运行的终端。点击窗格上的 **×** 会结束该终端；关闭或重启 DSH 也会结束其中的任务。每个会话最多打开 12 个终端。
 
-## Open and arrange terminals
+## 账号与配置
 
-- 在 DSH 输入栏点击 **终端**，或输入 **/terminal** 并选择“打开终端”。侧栏终端入口也保留。
-- 选择检测到的 **Shell / 智能体 CLI** 后才创建真实进程；新建空白窗格不会自动启动 CLI。
-- 使用左右双格、上下双格、主次三格、六格或十二格预设；窗格上的拆分按钮可继续组合布局。
-- 拖动分隔线调整大小；分隔线也支持方向键与双击均分。每次调整都会改变真实 PTY 尺寸。
-- 单格放大便于操作原生 TUI。切换布局或暂时收起窗格保留进程与当前页面里的终端组件。
-- **返回 DSH** 保留终端；终端上的 **×** 结束该进程。正常停止实例会结束受管终端并清理可观察的子进程。
+Codex、Claude、Kimi 和 Pi 在当前工作区使用独立配置。即使你已在其他终端登录，在这里首次使用仍可能需要重新登录。其他工具使用本机配置，并遵守 DSH 的访问权限。
 
-## Runtime and permissions
+“已安装”表示检测到了启动程序，不代表已登录或有可用额度。账号、套餐、剩余额度和智能体连接状态尚未自动查询，请打开相应智能体查看。部分安装方式无法读取版本号，会显示“版本未识别”。
 
-The UI uses additive DSH Slots and the framework's client command registry. It does not rewrite DSH's DOM or replace its root, conversation, or details regions. All entry points target a real DSH session through the same Host service.
+工作区中的 `.dsh-terminal` 保存本地运行数据，请勿提交或分享；使用中的数据目录也不应删除。
 
-Every request resolves the exact live Agent. The Host checks ownership, applies the current sandboxPolicy and sandbox.confine, and uses DSH's own managed subprocess lifetime. Sandbox mode changes are blocked while that session has a terminal being created, running, or awaiting cleanup. A missing sandbox provider in a restricted mode rejects the launch.
+## 智能建议与隐私
 
-One viewer holds the write lease for a terminal. Explicit takeover invalidates the previous lease; input sequence numbers reject duplicates and late writes. Uncertain input delivery is not automatically retried. A failed cleanup remains retryable. The limit is 12 retained terminals per session.
+点击“生成建议”时，终端助手使用 DSH 已配置的模型，发送本次输入和当前会话的终端运行状态。不自动读取终端内容、工作区文件或智能体登录凭据，也不自动执行建议中的命令。模型费用按所选服务的计费规则计算。
 
-### Version-pinned PTY compatibility
+安装兼容的 **DSH Supervisor** 后，可在工作台查看它对运行状态的建议。终端仍在运行不代表任务已完成，请结合实际结果核对。
 
-The audited official DSH release exposes PTY input and output but not a public resize method. This alpha therefore has a narrow compatibility adapter for the exact supported local-provider version. It checks the provider identity and underlying terminal shape, calls the existing terminal's resize operation, and exports TERM=xterm-256color inside the already-confined launch command.
+## 使用提示
 
-This uses a **private DSH handle field**. It does not modify the provider, its prototype, the installed DSH package, or other terminals. An unrecognised runtime is rejected and any allocated handle is cleaned up. DSH upgrades require a new compatibility audit; do not assume an arbitrary newer build works.
+- 连接中断时会暂停输入并尝试重连；尚未确认送达的输入不会自动重发。
+- 刷新浏览器后，部分历史画面可能无法完整恢复。
+- 当前为 Alpha 版本，尚不包含 Harvis 接管、跨智能体调度或 DSH 重启后的任务恢复。
+- 升级 DSH 前，请先确认 SuperTerminal 是否支持目标版本。
 
-### CLI configuration
+问题与反馈：[GitHub Issues](https://github.com/Harzva/dsh-superterminal/issues)。
 
-Codex, Claude, Kimi, and Pi use independent state under the workspace's .dsh-terminal/{codex,claude,kimi,pi}. Kimi and Pi use their supported KIMI_CODE_HOME and PI_CODING_AGENT_DIR settings; command aliases share the corresponding state directory. Other launchers retain native configuration, subject to the same DSH sandbox. Initialization runs in the same sandbox as the CLI, creates private directories and an ignore rule, and does not copy existing credentials. Git ignore rules cannot protect files already tracked by Git; this directory is local runtime data and must not be committed.
+## 开源与许可
 
-Authentication remains the native CLI's responsibility. The alpha has displayed Codex's native login menu. Claude reached its native interface in development but returned an Anthropic connection error with a fresh configuration on the verification machine. Neither login nor an agent's full model-task workflow is claimed as verified.
+MIT。依赖与图标许可见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。
 
-## Intelligent workspace
+终端显示使用 [xterm.js](https://github.com/xtermjs/xterm.js)。交互设计参考了 [Wave Terminal](https://github.com/wavetermdev/waveterm)、[Warp](https://github.com/warpdotdev/warp) 和 [Smart Terminal](https://github.com/muralianand12345/Smart-Terminal)，未包含这些应用的源码。
 
-Open **智能体管理** to browse detected CLIs, filter installed entries, inspect available versions and configuration scope, and launch into a free pane. Frequently used launchers remain on each empty pane; other commands are available through the library or custom-command disclosure. Account validity, subscriptions, and per-agent model connectivity are explicitly unverified.
-
-Open **智能建议** for a DSH-powered assistant beside your terminals. An explicit submission sends your typed question and current-session process metadata to the configured DSH model. Responses contain copyable command drafts; commands are not automatically executed. Raw terminal output, local files, and native CLI credentials are not collected. Model requests use the configured provider and may incur its normal charges.
-
-An optional Host-only `supervisionSnapshot` lets a compatible dsh-supervisor observe current-session process state and exit codes, without raw output or write leases. The Supervisor panel requires that separate plugin and fails locally when absent. This release does not ship changes to dsh-supervisor itself, register model-facing Tools, schedule agents, or implement Harvis takeover.
-
-## Development and verification
-
-~~~sh
-npm ci --legacy-peer-deps --ignore-scripts
-pnpm check
-pnpm run pack:dsh
-pnpm run verify:dsh-offline
-~~~
-
-check builds Host/Client artifacts, checks TypeScript, and runs the focused test suite. pack:dsh builds a fresh tarball and checks its file inventory. verify:dsh-offline verifies the packed artifact in an isolated official DSH profile; it does not modify a personal profile or use model credentials. Initial dependency installation requires network access, while the smoke makes no model-service calls. The script accepts an optional tarball path, records its fixture and restart parameters, and stops its test processes before returning.
-
-The development approach follows ship-first-workflow: implement visible interactions first, then verify real behavior and the release artifact. The release's verification record is kept in [CHANGELOG.md](https://github.com/Harzva/dsh-superterminal/blob/main/CHANGELOG.md).
-
-## Known limitations and next work
-
-- Native authentication and successful Claude connectivity still need user verification.
-- Browser refresh replays a bounded raw stream, not historical resize events; exact screen reconstruction is not guaranteed. A lost output prefix stops input until the terminal is reopened.
-- No process survival across Host restart, remote provider support, Windows support, or 12-busy-agent stress claim.
-- Reliable agent attention events, Harvis scheduling, and AI input handoff remain future work.
-- The private PTY adapter requires explicit review for each supported DSH version.
-
-To disable, remove the dsh-terminal loader entry from the chosen profile and restart that profile. Do not delete its runtime state directory while a CLI is using it.
-
-## References and license
-
-MIT. Dependency notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
-
-[Wave Terminal](https://github.com/wavetermdev/waveterm) informed pane layout and stable mounting; [Warp](https://github.com/warpdotdev/warp) informed native agent interaction; [Smart Terminal](https://github.com/muralianand12345/Smart-Terminal) informed command preview discussions. Their application code is not included. The terminal renderer is [xterm.js](https://github.com/xtermjs/xterm.js); DSH's managed subprocess implementation remains an external peer dependency.
-
-### Launcher discovery
-
-Known local CLIs are detected on PATH; custom entries accept a single executable name, without shell expressions or arguments. Launcher buttons and pane headers use bundled brand icons where available, with a generic terminal icon otherwise (see THIRD_PARTY_NOTICES.txt). Kimi reached its workspace trust prompt and Pi reached its interactive prompt in the isolated preview; authentication and model tasks remain unverified.
-
-### Account and model verification
-
-The terminal toolbar includes a searchable agent manager with PATH discovery, npm package versions when available, configuration scope, and native CLI launch. Native binaries and wrappers may show an unknown version. Account identity, login validity, subscriptions, quota, and per-agent model connectivity are not yet queried; these are explicitly marked unverified. No credentials are copied or returned to the browser.
-
-Smart advice calls the configured DSH model only after explicit submission. It sends the typed prompt and current-session terminal metadata, excluding raw PTY output and filesystem contents. Commands are displayed as reviewable, individually copyable drafts; this interface never executes them. The interaction is inspired by Warp's separation of task entry and terminal execution; no Warp source code is incorporated.
+开发与兼容性说明见 [DEVELOPING.md](https://github.com/Harzva/dsh-superterminal/blob/main/DEVELOPING.md)。插件包名保留为 `@harzva/dsh-terminal`，用于兼容已有安装。

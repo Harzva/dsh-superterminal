@@ -32,9 +32,6 @@ function stateLabel(state: string, exitCode?: number | null): string {
   return state || '状态未知';
 }
 
-function errorText(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).slice(0, 1200);
-}
 
 export function TerminalPane(props: Props) {
   const propsRef = useRef(props);
@@ -113,7 +110,7 @@ export function TerminalPane(props: Props) {
           await propsRef.current.bridge.write({ terminalId: propsRef.current.terminal.id, lease, sequence, data: chunk });
         } catch (error) {
           if (generation === controlGeneration.current) {
-            lockControl(`输入送达或控制权未确认：${errorText(error)}。已停止发送，请重新接管；上一段输入不会自动重发。`);
+            lockControl('未能确认输入是否送达，已暂停输入。请重新接管后检查终端，上一段输入不会自动重发。');
           }
         } finally {
           queuedCharacters.current -= chunk.length;
@@ -142,7 +139,7 @@ export function TerminalPane(props: Props) {
       if (mountedRef.current && generation === controlGeneration.current) setSize({ rows, cols });
     } catch (error) {
       if (generation === controlGeneration.current) {
-        lockControl(`终端尺寸同步失败：${errorText(error)}。已停止输入，请重新接管。`);
+        lockControl('窗口大小暂未同步，输入已暂停。请点击重新接管。');
       }
     } finally {
       resizeRunning.current = false;
@@ -193,7 +190,7 @@ export function TerminalPane(props: Props) {
       if (propsRef.current.focused) terminalRef.current?.focus();
     } catch (error) {
       if (mountedRef.current && generation === controlGeneration.current) {
-        setControlError(`无法接管：${errorText(error)}。当前只读。`);
+        setControlError('暂时无法接管，可继续查看终端。请稍后重试。');
       }
     } finally {
       managementBusy.current = false;
@@ -220,7 +217,7 @@ export function TerminalPane(props: Props) {
     } catch (error) {
       if (mountedRef.current && generation === controlGeneration.current) {
         setOwned(false);
-        setControlError(`关闭未完成：${errorText(error)}。请刷新列表确认终端状态；不会自动重复关闭。`);
+        setControlError('尚未确认终端是否关闭，请刷新列表查看。');
       }
     } finally {
       managementBusy.current = false;
@@ -305,7 +302,7 @@ export function TerminalPane(props: Props) {
       } catch (error) {
         if (canceled) return;
         readableRef.current = false;
-        setReadError(errorText(error));
+        setReadError('终端暂时无法更新，正在重新连接');
         updateStdin();
         delay = 1000;
       }
@@ -411,7 +408,7 @@ export function TerminalPane(props: Props) {
         <button className="dt-scroll-bottom" onClick={() => terminalRef.current?.scrollToBottom()}
           title="回到最新输出" aria-label={`终端 ${props.number} 回到底部`}>↓</button>
         <span className="dt-pane-spacer" />
-        {settled ? <span>进程已结束</span> : owned && !controlError ? <span className="dt-writer">人工控制</span> : <button
+        {settled ? <span>进程已结束</span> : owned && !controlError ? <span className="dt-writer">可输入</span> : <button
           className="dt-claim" disabled={claiming || closing || (state !== 'running' && state !== 'cleanup-error')} onClick={() => { void claim(); }}
           title="取得此终端的人工输入控制权">{claiming ? '接管中…' : controlError ? '重新接管' : '接管输入'}</button>}
         <button className="dt-interrupt" disabled={!writable} onClick={() => send('\u0003')} title="向此终端发送 Ctrl-C">Ctrl-C</button>
