@@ -1,0 +1,17 @@
+export type LayoutTree = { slot: number } | { id: string; axis: 'x' | 'y'; ratio: number; first: LayoutTree; second: LayoutTree };
+export type LayoutPreset = 'six' | 'twelve' | 'horizontal' | 'vertical' | 'main';
+export type Rect = { x: number; y: number; width: number; height: number };
+export type Separator = { id: string; axis: 'x' | 'y'; rect: Rect; container: Rect; ratio: number; minRatio: number; maxRatio: number };
+export const PANE_MIN_WIDTH: number;
+export const PANE_MIN_HEIGHT: number;
+export const SPLIT_GAP: number;
+export function leafSlots(tree: LayoutTree | null): number[];
+export function gridLayout(slots: number[], columns: number): LayoutTree | null;
+export function presetLayout(preset: LayoutPreset, slots: number[]): LayoutTree | null;
+export function removeSlot(tree: LayoutTree | null, slot: number): LayoutTree | null;
+export function splitSlot(tree: LayoutTree | null, target: number, added: number, axis: 'x' | 'y'): LayoutTree | null;
+export function resizeSplit(tree: LayoutTree | null, id: string, ratio: number): LayoutTree | null;
+export function minimumSize(tree: LayoutTree | null): { width: number; height: number };
+export function layoutGeometry(tree: LayoutTree | null, width: number, height: number): { width: number; height: number; panes: Record<number, Rect>; separators: Separator[] };
+export function pointerRatio(separator: Separator, x: number, y: number): number;
+export function neighborSlot(panes: Record<number, Rect>, current: number, direction: 'left' | 'right' | 'up' | 'down'): number | null;
