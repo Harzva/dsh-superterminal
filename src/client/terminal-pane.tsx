@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
+import { AgentIcon } from './agent-icon';
 import { FitAddon } from '@xterm/addon-fit';
 import type { TerminalBridge, TerminalSummary } from './types';
 
@@ -9,6 +10,7 @@ type Props = {
   viewerId: string;
   number: number;
   focused: boolean;
+  connected: boolean;
   visible: boolean;
   zoomed: boolean;
   autoClaim: boolean;
@@ -63,6 +65,10 @@ export function TerminalPane(props: Props) {
   const [state, setState] = useState(props.terminal.state);
   const [exitCode, setExitCode] = useState(props.terminal.exitCode);
   const [bell, setBell] = useState(false);
+  const [title, setTitle] = useState('');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+  const [fontSize, setFontSize] = useState(12);
   const [gap, setGap] = useState(false);
   const [readError, setReadError] = useState('');
   const [controlError, setControlError] = useState('');
@@ -350,6 +356,11 @@ export function TerminalPane(props: Props) {
     }
   }, [props.visible, props.focused, props.zoomed, ready, scheduleResize]);
 
+  useEffect(() => {
+    if (terminalRef.current) terminalRef.current.options.fontSize = fontSize;
+    scheduleResize();
+  }, [fontSize, scheduleResize]);
+
   const writable = owned && ready && !gap && !readError && state === 'running' && !closing && !claiming;
   const settled = state === 'exited' || state === 'error';
   return (
@@ -357,9 +368,20 @@ export function TerminalPane(props: Props) {
       aria-label={`终端 ${props.number} ${props.terminal.launcher}`} onPointerDown={props.onFocus}
       onFocusCapture={props.onFocus}>
       <header className="dt-pane-bar">
+        <AgentIcon launcher={props.terminal.launcher} />
         <span className="dt-pane-number">{String(props.number).padStart(2, '0')}</span>
-        <span className="dt-pane-title" title={props.terminal.id}>{props.terminal.launcher}</span>
-        <span className={`dt-state dt-state-${state}`}>{stateLabel(state, exitCode)}</span>
+        {editingTitle ? <input className="dt-title-input" autoFocus maxLength={48}
+          aria-label={`终端 ${props.number} 名称`} value={titleDraft}
+          onChange={event => setTitleDraft(event.target.value)}
+          onBlur={() => { setTitle(titleDraft.trim()); setEditingTitle(false); }}
+          onKeyDown={event => {
+            event.stopPropagation();
+            if (event.key === 'Enter') { event.preventDefault(); setTitle(titleDraft.trim()); setEditingTitle(false); }
+            if (event.key === 'Escape') { event.preventDefault(); setEditingTitle(false); }
+          }} /> : <button className="dt-pane-title" title={`${props.terminal.launcher} · 点击命名（当前视图）`}
+          aria-label={`重命名终端 ${props.number}`} onClick={() => { setTitleDraft(title); setEditingTitle(true); }}>
+          {title || props.terminal.launcher}</button>}
+        <span className={`dt-state dt-state-${state}`}>{props.connected ? stateLabel(state, exitCode) : '连接中断'}</span>
         {bell && <button className="dt-bell" onClick={() => setBell(false)} title="清除终端响铃标记">终端响铃 ×</button>}
         <span className="dt-pane-spacer" />
         <button className="dt-split-button" onClick={() => props.onSplit('x')} title="左右分割，添加空窗格"
@@ -373,12 +395,21 @@ export function TerminalPane(props: Props) {
       </header>
       <div className="dt-terminal-scroll"><div className="dt-terminal-host" ref={hostRef} /></div>
       {gap && <div className="dt-pane-notice dt-danger" role="alert">输出缓冲已截断，无法准确恢复画面，输入已停用。接管后可关闭此终端，再新建。</div>}
-      {!gap && readError && <div className="dt-pane-notice" role="status">输出读取失败：{readError}。暂停输入，正在重试读取…</div>}
+      {props.connected && !gap && readError && <div className="dt-pane-notice" role="status">输出读取失败：{readError}。暂停输入，正在重试读取…</div>}
       {!gap && !readError && !ready && <div className="dt-pane-notice" role="status">正在读取真实终端输出…</div>}
-      {controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
+      {props.connected && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
       <footer className="dt-pane-footer">
         <span title={props.terminal.id}>{props.terminal.pid ? `PID ${props.terminal.pid}` : '等待进程'}</span>
-        <span>{size.cols} × {size.rows}</span>
+        <span title="终端字符列数 × 行数">{size.cols} × {size.rows}</span>
+        <div className="dt-font-controls" aria-label={`终端 ${props.number} 字号`}>
+          <button disabled={fontSize <= 10} onClick={() => setFontSize(value => Math.max(10, value - 1))}
+            aria-label={`缩小终端 ${props.number} 字号`} title="缩小字号">A−</button>
+          <button onClick={() => setFontSize(12)} title="恢复 12px 字号" aria-label={`重置终端 ${props.number} 字号`}>{fontSize}</button>
+          <button disabled={fontSize >= 22} onClick={() => setFontSize(value => Math.min(22, value + 1))}
+            aria-label={`放大终端 ${props.number} 字号`} title="放大字号">A+</button>
+        </div>
+        <button className="dt-scroll-bottom" onClick={() => terminalRef.current?.scrollToBottom()}
+          title="回到最新输出" aria-label={`终端 ${props.number} 回到底部`}>↓</button>
         <span className="dt-pane-spacer" />
         {settled ? <span>进程已结束</span> : owned && !controlError ? <span className="dt-writer">人工控制</span> : <button
           className="dt-claim" disabled={claiming || closing || (state !== 'running' && state !== 'cleanup-error')} onClick={() => { void claim(); }}
