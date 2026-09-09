@@ -9,7 +9,7 @@
 下载并安装发布包，然后重启所选 DSH 配置：
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.4/harzva-dsh-terminal-0.1.0-alpha.4.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.3/harzva-dsh-terminal-0.1.0-alpha.3.tgz
 ```
 
 在 DSH 输入栏点击 **终端**，或输入 **/terminal** 并选择“打开终端”。从旧版 DSH Terminal 升级时继续使用同一插件，无需额外安装第二份。
