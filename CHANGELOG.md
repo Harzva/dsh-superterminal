@@ -1,3 +1,14 @@
+# v0.1.0-alpha.3 — DSH SuperTerminal
+
+- Introduce the SuperTerminal product name while retaining compatible package/RPC identifiers.
+- Redesign the terminal workspace, searchable agent library, expandable configuration details, and right-side assistant.
+- Detect known installed CLIs and available npm package versions; add Kimi/Pi workspace state directories and bundled agent icons.
+- Add explicit DSH model advice with independently copyable command drafts and scoped process metadata.
+- Add optional Supervisor observation and clearer connection-loss UI.
+- Account validity, subscriptions, native-agent model workflows, and process survival across Host restart remain unverified or unsupported.
+
+Validation: build, TypeScript, 19 focused tests; real local model advice and management-to-terminal launch. Official isolated artifact verification is recorded at release time.
+
 # Changelog
 
 ## 0.1.0-alpha.2
