@@ -1,0 +1,56 @@
+import React, { useEffect, useState } from 'react';
+
+type State = { suggestion?: string; suggestError?: string; suggesting?: boolean; mode?: string };
+export function SupervisorPanel({ sessionId }: { sessionId: string }) {
+  const [state, setState] = useState<State>({});
+  const [error, setError] = useState('');
+  const [round, setRound] = useState(0);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    setBusy(true); setError('');
+    const read = async () => {
+      const response = await fetch(`/dsh-supervisor/states?ids=${encodeURIComponent(sessionId)}`, { signal: controller.signal });
+      if (!response.ok) throw new Error('当前实例的 DSH Supervisor 暂不可用');
+      const result = await response.json();
+      const next = result.states?.[sessionId];
+      if (!next || typeof next !== 'object') throw new Error('未找到当前会话的监督状态');
+      const checked: State = { suggestion: typeof next.suggestion === 'string' ? next.suggestion.slice(0, 4000) : '',
+        suggestError: typeof next.suggestError === 'string' ? next.suggestError.slice(0, 1000) : '', suggesting: next.suggesting === true };
+      if (!controller.signal.aborted) setState(checked);
+      return checked;
+    };
+    const run = async () => {
+      try {
+        if (round > 0) {
+          const response = await fetch('/dsh-supervisor/regen', { method: 'POST', signal: controller.signal,
+            headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) });
+          if (!response.ok) throw new Error('生成请求未确认，请稍后重新查看状态');
+        }
+        const started = Date.now();
+        const poll = async () => {
+          try {
+            const next = await read();
+            if (controller.signal.aborted) return;
+            if ((round > 0 && !next.suggestion && !next.suggestError && Date.now() - started < 30000) || next.suggesting) {
+              timer = setTimeout(() => { void poll(); }, 1000);
+            } else { clearTimeout(timeout); setBusy(false); }
+          } catch (cause) { if (!controller.signal.aborted) { clearTimeout(timeout); setError(cause instanceof Error ? cause.message : '监督状态读取失败'); setBusy(false); } }
+        };
+        await poll();
+      } catch (cause) { if (!controller.signal.aborted) { clearTimeout(timeout); setError(cause instanceof Error ? cause.message : '监督请求失败'); setBusy(false); } }
+    };
+    const onTimeout = () => { setBusy(false); setError('本次读取已超时，可关闭后重新查看；不会自动重新请求模型。'); };
+    controller.signal.addEventListener('abort', onTimeout, { once: true });
+    void run();
+    return () => { clearTimeout(timeout); clearTimeout(timer); controller.signal.removeEventListener('abort', onTimeout); controller.abort(); };
+  }, [sessionId, round]);
+  return <aside className="dt-supervisor-panel" aria-label="DSH Supervisor">
+    <div><strong>DSH Supervisor</strong><span>当前会话 · 只读进程观察</span>
+      <button className="dt-toolbar-button" disabled={busy} onClick={() => setRound(value => value + 1)}>{busy ? '读取中…' : '生成一次建议'}</button></div>
+    <p role="status">{error || state.suggestError || state.suggestion || (busy ? '正在读取监督状态…' : '尚无建议。点击生成时会使用 DSH 已配置的模型。')}</p>
+    <small>提供终端类型、进程状态和退出码；未共享终端输出，不自动发送输入。建议不代表任务已验收。</small>
+  </aside>;
+}
