@@ -23,12 +23,16 @@ function fixture(options = {}) {
       }
       spec.signal.addEventListener('abort', () => handle.terminate(), { once: true })
       handles.push(handle)
+      if (spec.argv.includes('login') && spec.argv.includes('status')) {
+        handle.clean = options.loginClean ?? true
+        if (!options.loginWait) queueMicrotask(() => handle.finish([], options.loginExit ?? 0, options.loginStderr ?? 'Logged in using ChatGPT'))
+      }
       return handle
     } } }
   const terminals = { ctx, current(source) { if (agents.get(source.id) !== source) throw new Error('owner 已失效') }, owned(source) { this.current(source); return {} },
     entry(source, id) { this.current(source); if (source !== owner || !sources.has(id)) throw new Error('当前会话没有这个终端'); return sources.get(id) },
     launcherCatalog: () => [{ id: 'shell', label: 'Shell' }, { id: 'pi', label: 'Pi' }, { id: 'piagent', label: 'Pi Agent' }, { id: 'codex', label: 'Codex' }, { id: 'kimi', label: 'Kimi' }] }
-  const handoffs = new TerminalHandoffs(terminals, { journal, timeoutMs: options.timeoutMs,
+  const handoffs = new TerminalHandoffs(terminals, { journal, timeoutMs: options.timeoutMs, loginTimeoutMs: options.loginTimeoutMs,
     deliver: async input => { deliveries.push(input); return { status: 'queued', messageId: 'returned-message' } } })
   const start = changes => handoffs.start(owner, requests.handoffStart.parse({ requestId: 'request-1', sourceTerminalId: 'source', targetLauncher: 'pi', prompt: 'Review the change', ...changes }))
   return { owner, agents, sources, policy, handles, deliveries, records, persisted, handoffs, start }
@@ -215,7 +219,7 @@ test('installation remains unverified and real CLI failures preserve actionable 
     assert.equal(targets.find(row => row.id === scenario.targetLauncher).available, true)
     assert.match(targets.find(row => row.id === scenario.targetLauncher).reason, /已检测到安装.*仍待实际任务确认/)
     const task = await f.start({ targetLauncher: scenario.targetLauncher, criteria: 'Explain the cause', excerpt: 'Shared context' })
-    await tick(); f.handles[0].finish(scenario.events, scenario.exit, scenario.stderr)
+    await tick(); f.handles.at(-1).finish(scenario.events, scenario.exit, scenario.stderr)
     const result = await settle(f, task)
     assert.equal(result.status, 'failed'); assert.match(result.error, scenario.expected)
     assert.equal(result.exitCode, scenario.exit); assert.equal(result.result, undefined)
@@ -271,4 +275,69 @@ test('concurrent cleanup retries release capacity only once even when cancellati
   await f.handoffs.cancel(f.owner, { taskId: next.id })
   assert.equal(f.handoffs.activeCount, 0)
   await f.handoffs.close()
+})
+
+test('Codex login preflight uses isolated file credentials and rejects missing login before sending the task', async () => {
+  const f = fixture({ loginExit: 1, loginStderr: 'Not logged in' })
+  const task = await f.start({ targetLauncher: 'codex', excerpt: 'Shared task details' })
+  const result = await settle(f, task)
+  assert.equal(f.handles.length, 1)
+  const login = f.handles[0]
+  assert.equal(login.spec.argv[0], 'confined')
+  assert.deepEqual(login.spec.argv.slice(-5), ['/bin/codex', 'login', 'status', '-c', 'cli_auth_credentials_store="file"'])
+  assert.equal(login.spec.stdio.stdin, 'ignore')
+  assert.equal(login.spec.env.CODEX_HOME, '/tmp/handoff-fixture/.dsh-terminal/codex')
+  assert.equal(login.spec.env.CODEX_SQLITE_HOME, login.spec.env.CODEX_HOME)
+  assert.equal(login.spec.cwd, '/tmp/handoff-fixture')
+  assert.equal(JSON.stringify(login.spec).includes('Shared task details'), false)
+  assert.equal(result.status, 'failed'); assert.equal(result.exitCode, 1); assert.match(result.error, /登录或凭据/)
+  assert.equal(f.records.get(task.id).excerpt, 'Shared task details')
+  assert.equal(login.terminated, true); assert.equal(f.handoffs.activeCount, 0)
+  await f.handoffs.close()
+})
+
+test('Codex executes only after the logged-in preflight tree exits and does not retain login output', async () => {
+  const f = fixture({ loginStderr: 'Logged in using an API key - PRIVATE_KEY_FRAGMENT' })
+  const task = await f.start({ targetLauncher: 'codex' }); await tick()
+  assert.equal(f.handles.length, 2)
+  const [login, execution] = f.handles
+  assert.equal(login.terminated, true)
+  assert.deepEqual(execution.spec.env, login.spec.env)
+  assert.equal(execution.spec.cwd, login.spec.cwd)
+  assert.equal(execution.spec.argv[0], 'confined')
+  assert.ok(execution.spec.argv.includes('exec')); assert.ok(execution.spec.stdio.stdin.data.includes('Review the change'))
+  execution.finish([{ type: 'item.completed', item: { type: 'agent_message', text: 'Review returned' } }, { type: 'turn.completed' }])
+  const result = await settle(f, task)
+  assert.equal(result.status, 'succeeded'); assert.equal(result.result, 'Review returned')
+  assert.equal(JSON.stringify(f.persisted).includes('PRIVATE_KEY_FRAGMENT'), false)
+  assert.equal(f.handoffs.activeCount, 0)
+  await f.handoffs.close()
+})
+
+test('Codex preflight timeout, cancellation and unproven cleanup never start exec or bypass capacity', async () => {
+  const timed = fixture({ loginWait: true, loginTimeoutMs: 15 })
+  const task = await timed.start({ targetLauncher: 'codex' })
+  const result = await settle(timed, task)
+  assert.equal(result.status, 'failed'); assert.match(result.error, /登录检查超时/)
+  assert.equal(timed.handles.length, 1); assert.equal(timed.handles[0].terminated, true)
+  assert.equal(timed.handoffs.activeCount, 0); await timed.handoffs.close()
+
+  const cancelled = fixture({ loginWait: true })
+  const one = await cancelled.start({ targetLauncher: 'codex' })
+  const two = await cancelled.start({ requestId: 'two', targetLauncher: 'codex' }); await tick()
+  assert.equal((await cancelled.start({ requestId: 'three', targetLauncher: 'codex' })).rejected, true)
+  await Promise.all([cancelled.handoffs.cancel(cancelled.owner, { taskId: one.id }), cancelled.handoffs.cancel(cancelled.owner, { taskId: two.id })])
+  assert.equal(cancelled.handles.length, 2); assert.ok(cancelled.handles.every(handle => handle.terminated))
+  assert.equal(cancelled.records.get(one.id).status, 'cancelled'); assert.equal(cancelled.handoffs.activeCount, 0)
+  await cancelled.handoffs.close()
+
+  const blocked = fixture({ loginClean: false })
+  const blockedTask = await blocked.start({ targetLauncher: 'codex' })
+  const pending = await settle(blocked, blockedTask)
+  assert.equal(pending.status, 'running'); assert.match(pending.error, /登录检查进程.*清理/)
+  assert.equal(blocked.handles.length, 1); assert.equal(blocked.handoffs.activeCount, 1)
+  blocked.handles[0].clean = true
+  await blocked.handoffs.cancel(blocked.owner, { taskId: blockedTask.id })
+  assert.equal(blocked.handoffs.activeCount, 0); assert.equal(blocked.handles.length, 1)
+  await blocked.handoffs.close()
 })
