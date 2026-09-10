@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none" role="img" aria-labelledby="mimi-title mimi-desc">
+  <title id="mimi-title">Mimi — DSH SuperTerminal</title>
+  <desc id="mimi-desc">A mint-green terminal kitten with soft ears and a cheerful command-prompt face.</desc>
+  <path d="M120 113c24 10 28-10 17-17" stroke="#182E2A" stroke-width="12" stroke-linecap="round"/>
+  <path d="M120 113c24 10 28-10 17-17" stroke="#BDE8D4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M30 54 28 28c-.4-5 3-7 7-4l28 17c11-4 23-4 34 0l28-17c4-3 7.4-1 7 4l-2 26c6 7 9 17 9 29v24c0 20-12 31-32 31H53c-20 0-32-11-32-31V83c0-12 3-22 9-29Z" fill="#BDE8D4" stroke="#182E2A" stroke-width="6" stroke-linejoin="round"/>
+  <path d="m40 37 2 16 14-5Z" fill="#F2ADA8"/>
+  <path d="m120 37-2 16-14-5Z" fill="#F2ADA8"/>
+  <rect x="34" y="60" width="92" height="57" rx="21" fill="#182E2A"/>
+  <path d="m54 75 12 12-12 12M83 99h19" stroke="#BDE8D4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M62 129h8m20 0h8" stroke="#182E2A" stroke-width="5" stroke-linecap="round"/>
+</svg>
