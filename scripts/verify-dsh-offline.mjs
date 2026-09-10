@@ -32,7 +32,7 @@ const packed = JSON.parse(execFileSync('tar', ['-xOf', artifact, 'package/packag
 assert.equal(packed.name, manifest.name)
 assert.equal(packed.version, manifest.version)
 const entries = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' }).trim().split('\n')
-for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/pty-compat.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
   assert.ok(entries.includes(`package/${file}`), `Release artifact must include ${file}`)
 }
 assert.ok(entries.every(path => path.startsWith('package/') && !path.split('/').includes('..')))
@@ -42,6 +42,28 @@ const runtime = join(fixture, 'runtime')
 const home = join(fixture, 'home')
 const workspace = join(fixture, 'workspace')
 await Promise.all([mkdir(runtime), mkdir(home), mkdir(workspace)])
+// This explicitly named protocol simulator tests the installed package's real
+// subprocess/storage/return path without a model account. Live model acceptance
+// is a separate check; this fixture never claims to be a real Pi model response.
+const fixtureBin = join(fixture, 'protocol-simulator')
+await mkdir(fixtureBin)
+await writeFile(join(fixtureBin, 'pi'), `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs'
+let input = ''
+for await (const chunk of process.stdin) input += chunk
+const task = JSON.parse(input.slice(input.indexOf('\\n') + 1))
+appendFileSync('protocol-spawns.jsonl', JSON.stringify({ id: process.env.DSH_HANDOFF_TASK_ID, pid: process.pid }) + '\\n')
+const emit = value => process.stdout.write(JSON.stringify(value) + '\\n')
+emit({ type: 'agent_start' })
+if (task.task === 'offline:wait') {
+  setInterval(() => {}, 1000)
+} else {
+  emit({ type: 'message_end', message: { role: 'assistant', stopReason: task.task === 'offline:error' ? 'error' : 'stop',
+    errorMessage: task.task === 'offline:error' ? 'Offline protocol fixture failure' : undefined,
+    content: [{ type: 'text', text: task.task === 'offline:error' ? '' : 'VERIFIED_NATIVE_HANDOFF' }] } })
+  emit({ type: 'agent_end', willRetry: false })
+}
+`, { mode: 0o700 })
 await writeFile(join(runtime, 'package.json'), JSON.stringify({
   name: 'dsh-terminal-verification-runtime', version: '0.0.0', private: true, type: 'module',
   dependencies: { '@deepseek-ai/dsh': dshVersion, react: '18.3.1' },
@@ -55,7 +77,7 @@ await run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--r
 // node-pty helper's executable bit; it does not build or patch DSH sources.
 await run(process.execPath, [join(runtime, 'node_modules/@deepseek-ai/dsh-subprocess-local/scripts/ensure-spawn-helper.mjs')], { cwd: runtime })
 const cli = join(runtime, 'node_modules/@deepseek-ai/dsh/lib/bin.js')
-const childEnv = { ...env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }
+const childEnv = { ...env, PATH: fixtureBin + ':' + (env.PATH ?? ''), DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' }
 await run(process.execPath, [cli, 'plugin', '--profile', 'web', 'add', artifact, '--ignore-scripts'], { cwd: workspace, env: childEnv })
 const profile = join(home, 'profiles/web')
 const installedManifest = JSON.parse(await readFile(join(profile, 'node_modules/@harzva/dsh-terminal/package.json'), 'utf8'))
@@ -90,6 +112,8 @@ let server
 let logs = ''
 let sessionId
 const terminals = []
+const spawnedJobs = async () => { try { return (await readFile(join(workspace, 'protocol-spawns.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) } catch (error) { if (error.code === 'ENOENT') return []; throw error } }
+let handoffOwner, handoffInput, finishedHandoff, interruptedHandoff
 let failure
 
 async function rpc(method, payload) {
@@ -134,6 +158,11 @@ async function bootServer() {
     if (server.exitCode !== null) throw new Error(`Official DSH exited during boot (${server.exitCode})`)
     try { return (await fetch(base, { signal: AbortSignal.timeout(1000) })).ok } catch { return false }
   }, 'official DSH HTTP ready', 45000)
+  await until(async () => {
+    if (server.exitCode !== null) throw new Error('Official DSH exited before its API was ready')
+    try { await rpc('host.describe', {}); return true }
+    catch (error) { if (/HTTP 404|fetch failed/.test(error.message)) return false; throw error }
+  }, 'official DSH API ready', 45000)
 }
 
 async function createSource(cwd = workspace) {
@@ -208,6 +237,39 @@ try {
   report.checks.independentOwnerAndPtyIsolation = true
   report.checks.independentSurvivesConversationSwitch = true
 
+  handoffOwner = side.sessionId
+  const handoffCall = (method, request = {}) => callOwner(handoffOwner, method, request)
+  handoffInput = { requestId: randomUUID(), sourceTerminalId: sidePty.id, targetLauncher: 'pi', prompt: 'offline:complete', returnToConversation: false }
+  finishedHandoff = await handoffCall('handoffStart', handoffInput)
+  assert.ok(finishedHandoff.id && !finishedHandoff.rejected)
+  assert.equal((await handoffCall('handoffStart', handoffInput)).id, finishedHandoff.id)
+  await until(async () => {
+    const task = (await handoffCall('handoffList')).tasks.find(task => task.id === finishedHandoff.id)
+    if (task?.status === 'failed') throw new Error(`Protocol fixture failed: ${task.error}`)
+    if (task?.status !== 'succeeded') return false
+    assert.equal(task.result, 'VERIFIED_NATIVE_HANDOFF'); return true
+  }, 'packed handoff completes through real subprocess and native storage')
+  assert.equal((await spawnedJobs()).filter(job => job.id === finishedHandoff.id).length, 1)
+  assert.ok(!(await call('handoffList', {})).tasks.some(task => task.id === finishedHandoff.id))
+  await assert.rejects(call('handoffReturn', { taskId: finishedHandoff.id }), /当前会话/)
+  const delivered = await handoffCall('handoffReturn', { taskId: finishedHandoff.id })
+  assert.equal(delivered.delivery, 'queued')
+  assert.equal((await handoffCall('handoffReturn', { taskId: finishedHandoff.id })).messageId, delivered.messageId)
+  const history = await rpc('session.history', { sessionId: handoffOwner })
+  const inserted = history.events.flatMap(item => item.event?.type === 'agent/inbox/spliced' ? item.event.data.inserted : [])
+  assert.equal(inserted.filter(message => message.id === delivered.messageId).length, 1)
+  report.checks.packedProtocolSimulatorCompleteReturnAndDedupe = true
+  report.checks.packedHandoffOwnerIsolation = true
+  const failed = await handoffCall('handoffStart', { ...handoffInput, requestId: randomUUID(), prompt: 'offline:error' })
+  await until(async () => (await handoffCall('handoffList')).tasks.some(task => task.id === failed.id && task.status === 'failed' && !!task.error), 'explicit protocol failure is recorded')
+  const cancelled = await handoffCall('handoffStart', { ...handoffInput, requestId: randomUUID(), prompt: 'offline:wait' })
+  await until(async () => (await spawnedJobs()).some(job => job.id === cancelled.id), 'cancellable process starts')
+  assert.equal((await handoffCall('handoffCancel', { taskId: cancelled.id })).status, 'cancelled')
+  await until(async () => (await spawnedJobs()).filter(job => job.id === cancelled.id).every(job => !alive(job.pid)), 'cancelled process is gone')
+  interruptedHandoff = await handoffCall('handoffStart', { ...handoffInput, requestId: randomUUID(), prompt: 'offline:wait' })
+  await until(async () => (await spawnedJobs()).some(job => job.id === interruptedHandoff.id), 'restart-interrupted process starts')
+  report.checks.packedHandoffFailureAndCancellation = true
+
   // Graceful cold restart proves that the dedicated owner is durable while
   // the PTYs are accurately treated as processes that have stopped.
   server.kill('SIGINT')
@@ -222,6 +284,14 @@ try {
   assert.equal(restored.restored, true)
   assert.equal(restored.mode, 'workspace-write')
   assert.deepEqual((await callOwner(restored.sessionId, 'list', {})).terminals, [])
+  const records = (await callOwner(restored.sessionId, 'handoffList', {})).tasks
+  assert.equal(records.find(task => task.id === finishedHandoff.id)?.delivery, 'queued')
+  assert.equal(records.find(task => task.id === finishedHandoff.id)?.result, 'VERIFIED_NATIVE_HANDOFF')
+  assert.ok(['interrupted', 'cancelled'].includes(records.find(task => task.id === interruptedHandoff.id)?.status), 'unfinished task must remain stopped after graceful restart')
+  assert.equal((await callOwner(restored.sessionId, 'handoffStart', handoffInput)).id, finishedHandoff.id)
+  assert.equal((await spawnedJobs()).length, 4, 'restore/retry must not start new processes')
+  assert.ok((await spawnedJobs()).every(job => !alive(job.pid)))
+  report.checks.packedHandoffColdRestoreNoRerun = true
   const restoredPty = await createPty(restored.sessionId)
   await write(restoredPty, "printf 'SIDE_TERMINAL_RESUMED\\n'\r")
   await readUntil(restoredPty, '\r\nSIDE_TERMINAL_RESUMED\r\n')
@@ -254,6 +324,8 @@ try {
   }
   try { await until(() => terminals.every(entry => !alive(entry.pid)), 'owned PTY cleanup', 5000); report.cleanup.ptyProcessesGone = true }
   catch (error) { report.cleanup.ptyProcessesGone = false; errors.push(error.message) }
+  try { await until(async () => (await spawnedJobs()).every(job => !alive(job.pid)), 'owned handoff process cleanup', 5000); report.cleanup.handoffProcessesGone = true }
+  catch (error) { report.cleanup.handoffProcessesGone = false; errors.push(error.message) }
   report.cleanup.errors = errors
   report.cleanup.serverStopped = !server || server.exitCode !== null || server.signalCode !== null
   report.ok = !failure && errors.length === 0 && report.cleanup.serverStopped
@@ -262,5 +334,5 @@ try {
   await writeFile(join(repo, 'artifacts', `verification-${dshVersion}.json`), JSON.stringify(report, null, 2) + '\n')
   await writeFile(join(fixture, 'verification.json'), JSON.stringify(report, null, 2) + '\n')
   console.log(JSON.stringify(report, null, 2))
-  if (!report.ok) { console.error(logs); process.exitCode = 1 }
+  if (!report.ok) { await writeFile(join(fixture, 'private-runtime.log'), logs, { mode: 0o600 }); console.error('Verification failed; private diagnostics retained in the isolated fixture.'); process.exitCode = 1 }
 }

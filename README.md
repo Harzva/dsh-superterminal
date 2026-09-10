@@ -6,10 +6,10 @@
 
 当前支持 **macOS、Node.js 24+ 和官方 DSH 0.1.1-rc.2**。暂不支持 Windows、远程终端或其他 DSH 版本。
 
-下载并安装发布包，然后重启所选 DSH 配置：
+安装 alpha.6，然后重启所选 DSH 配置：
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.5/harzva-dsh-terminal-0.1.0-alpha.5.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.6/harzva-dsh-terminal-0.1.0-alpha.6.tgz
 ```
 
 在 DSH 输入栏点击 **终端**，或输入 **/terminal** 并选择“打开终端”。从旧版 DSH Terminal 升级时继续使用同一插件，无需额外安装第二份。
@@ -50,6 +50,18 @@ Side Terminal 提供两种关联方式：
 
 切换目标终端后，助手会切换到对应任务，不会把上一项任务的建议填入另一个终端。
 
+## 把下一步交给搭档
+
+选择一个来源终端，点击 **交给 Agent**。填写任务目标与完成判据，选择接收者；如需分享终端内容，先选择文字，再勾选并预览摘录。
+
+当前后台任务支持 **Pi Agent、piagent 和 Codex**。它们使用当前工作区的独立配置，需先完成登录或模型设置。其他 CLI 仍可在原生终端中交互使用。
+
+提交后会建立独立的后台任务，来源终端继续保留。协作记录展示来源、执行者、运行状态和返回结果；长结果可展开或复制全文，提交后会直接定位到新任务。**已返回 · 待验收** 表示收到完整的 Agent 结果，需要结合目标核对成果。
+
+勾选 **完成后将结果送回关联对话**，结果会加入发起任务的 DSH 对话，等待该对话处理。切换页面不会改变目的地；独立工作台的任务回到它自己的会话。未勾选时，也可以在结果卡片点击 **送回对话**。回传状态不确定时，可点击 **核对回传**，同一任务不会重复发送消息。
+
+同时最多运行 2 项后台任务，每个会话保留最多 32 条交接记录。可单独停止任务；重启后未完成的任务会保留中断记录，不会自动重跑。交接不会接管来源终端的键盘，也不代表继续接收 Agent 的旧会话。
+
 ## 账号与配置
 
 智能体目录可搜索本机工具，查看可识别的版本、使用配置和安装详情。
@@ -66,12 +78,16 @@ Codex、Claude、Kimi 和 Pi 在当前工作区使用独立配置。即使你已
 
 浏览器只保存恢复工作台所需的名称、布局和关联信息，不保存终端输出、助手问题或草稿。
 
-安装兼容的 **DSH Supervisor** 后，可在工作台查看它对运行状态的建议。终端仍在运行不代表任务已完成，请结合实际结果核对。
+交接任务的目标、完成判据、显式分享的摘录和返回结果保存在 DSH 本地存储中。提交任务时会把这些选定材料交给接收 Agent；回传对话会发送任务与结果，不附带其余终端历史。
+
+安装 **DSH Supervisor** 后，可在工作台查看它对当前对话的建议。任务回传后，来源、执行者、目标和结果会进入关联对话。
+
+直接读取终端协作状态的 Supervisor 适配已在隔离环境验证，**尚未包含在公开 Supervisor 0.2.4 中**；本包不会替换或升级 Supervisor。适配接口提供任务目标、完成判据、来源与执行者、运行及回传状态，不提供原始终端输出。正常返回和退出码 0 都不代表任务已经验收。
 
 ## 使用提示
 
 - 连接中断时会暂停输入并尝试重连；尚未确认送达的输入不会自动重发。
-- 当前为 Alpha 版本，尚不包含 Harvis 接管、跨智能体调度或智能体任务的自动续接。
+- 当前为 Alpha 版本，尚不包含 Harvis 接管、任意 CLI 的后台协议适配或智能体任务的自动续接。
 - 升级 DSH 前，请先确认 SuperTerminal 是否支持目标版本。
 
 问题与反馈：[GitHub Issues](https://github.com/Harzva/dsh-superterminal/issues)。
@@ -80,4 +96,4 @@ Codex、Claude、Kimi 和 Pi 在当前工作区使用独立配置。即使你已
 
 MIT。依赖与图标许可见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。
 
-终端显示使用 [xterm.js](https://github.com/xtermjs/xterm.js)。交互设计参考了 [Wave Terminal](https://github.com/wavetermdev/waveterm)、[Warp](https://github.com/warpdotdev/warp) 和 [Smart Terminal](https://github.com/muralianand12345/Smart-Terminal)，未包含这些应用的源码。
+终端显示使用 [xterm.js](https://github.com/xtermjs/xterm.js)。交互设计参考了 [Wave Terminal](https://github.com/wavetermdev/waveterm)、[Warp](https://github.com/warpdotdev/warp)、[Smart Terminal](https://github.com/muralianand12345/Smart-Terminal) 和 [OpenOcta](https://github.com/openocta/openocta)，未包含这些应用的源码。
