@@ -32,7 +32,7 @@ const packed = JSON.parse(execFileSync('tar', ['-xOf', artifact, 'package/packag
 assert.equal(packed.name, manifest.name)
 assert.equal(packed.version, manifest.version)
 const entries = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' }).trim().split('\n')
-for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/pty-compat.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/pty-compat.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
   assert.ok(entries.includes(`package/${file}`), `Release artifact must include ${file}`)
 }
 assert.ok(entries.every(path => path.startsWith('package/') && !path.split('/').includes('..')))
@@ -103,19 +103,20 @@ async function rpc(method, payload) {
   if (!result?.ok) throw new Error(`${method}: ${result?.error?.message ?? 'missing result'}`)
   return result.value
 }
-const call = (method, request) => rpc(`dshTerminal/${method}`, { args: { agentId: sessionId, request } })
+const callOwner = (ownerId, method, request) => rpc(`dshTerminal/${method}`, { args: { agentId: ownerId, request } })
+const call = (method, request) => callOwner(sessionId, method, request)
 async function until(check, label, ms = 10000) {
   const end = Date.now() + ms
   while (Date.now() < end) { if (await check()) return; await delay(80) }
   throw new Error(`Timed out: ${label}`)
 }
 async function write(entry, data) {
-  const result = await call('write', { terminalId: entry.id, lease: entry.lease, sequence: entry.sequence, data })
+  const result = await callOwner(entry.ownerSessionId, 'write', { terminalId: entry.id, lease: entry.lease, sequence: entry.sequence, data })
   entry.sequence = result.nextSequence
 }
 async function readUntil(entry, expected) {
   await until(async () => {
-    const result = await call('read', { terminalId: entry.id, offset: entry.offset })
+    const result = await callOwner(entry.ownerSessionId, 'read', { terminalId: entry.id, offset: entry.offset })
     assert.equal(result.gap, false)
     entry.offset = result.nextOffset
     entry.output += result.data
@@ -124,7 +125,7 @@ async function readUntil(entry, expected) {
 }
 function alive(pid) { try { process.kill(pid, 0); return true } catch (error) { if (error.code === 'ESRCH') return false; throw error } }
 
-try {
+async function bootServer() {
   server = spawn(process.execPath, command, { cwd: workspace, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
   const remember = chunk => { logs = (logs + chunk.toString()).slice(-64000) }
   server.stdout.on('data', remember)
@@ -133,29 +134,43 @@ try {
     if (server.exitCode !== null) throw new Error(`Official DSH exited during boot (${server.exitCode})`)
     try { return (await fetch(base, { signal: AbortSignal.timeout(1000) })).ok } catch { return false }
   }, 'official DSH HTTP ready', 45000)
-  report.checks.realOfficialWebBoot = true
-  await verifyRuntimePackages()
-  report.checks.officialPeerVersionsAndSingleInstances = true
-  sessionId = (await rpc('session.create', { cwd: workspace })).sessionId
-  report.sessionId = sessionId
+}
+
+async function createSource(cwd = workspace) {
+  const id = (await rpc('session.create', { cwd })).sessionId
   await until(async () => {
-    const history = await rpc('session.history', { sessionId })
+    const history = await rpc('session.history', { sessionId: id })
     const current = history.projections?.values?.permissions?.currentValue
     if (current === undefined) return false
     assert.equal(current, 'workspace-write')
     return true
   }, 'permission projection is ready')
+  return id
+}
+
+async function createPty(ownerId) {
+  const opened = await callOwner(ownerId, 'open', { launcher: 'shell', requestId: randomUUID(), rows: 24, cols: 80 })
+  const entry = { ...opened, ownerSessionId: ownerId, offset: 0, output: '', endedByRestart: false }
+  terminals.push(entry)
+  const claim = await callOwner(ownerId, 'claim', { terminalId: entry.id, viewerId: `verification-${randomUUID()}` })
+  entry.lease = claim.lease
+  entry.sequence = claim.nextSequence
+  return entry
+}
+
+try {
+  await bootServer()
+  report.checks.realOfficialWebBoot = true
+  await verifyRuntimePackages()
+  report.checks.officialPeerVersionsAndSingleInstances = true
+  sessionId = await createSource()
+  report.sessionId = sessionId
   report.checks.defaultWorkspaceWrite = true
   const listing = await call('list', {})
   assert.ok(listing.launchers.some(item => item.id === 'shell' && item.available))
   report.checks.packedRemoteReachable = true
   for (let index = 0; index < 6; index++) {
-    const opened = await call('open', { launcher: 'shell', requestId: randomUUID(), rows: 24, cols: 80 })
-    const entry = { ...opened, offset: 0, output: '' }
-    terminals.push(entry)
-    const claim = await call('claim', { terminalId: entry.id, viewerId: `verification-${randomUUID()}` })
-    entry.lease = claim.lease
-    entry.sequence = claim.nextSequence
+    const entry = await createPty(sessionId)
     await write(entry, "printf '\\033[32m原生PTY_%s\\033[0m\\n' \"$TERM\"\r")
     await readUntil(entry, '\u001b[32m原生PTY_xterm-256color\u001b[0m')
     await call('resize', { terminalId: entry.id, lease: entry.lease, rows: 37 + index, cols: 119 + index })
@@ -166,6 +181,54 @@ try {
   report.checks.actualUnpatchedPtyTermUnicodeAnsiResize = true
   report.checks.distinctPtys = true
   report.checks.distinctPtyCount = terminals.length
+
+  // A distinct real owner remains independent of the selected conversation.
+  // Only fixture-created PTYs are used; no model requests or credentials.
+  const [side, duplicate] = await Promise.all([call('independent', {}), call('independent', {})])
+  assert.notEqual(side.sessionId, sessionId)
+  assert.equal(side.sessionId, duplicate.sessionId)
+  assert.equal(side.mode, 'workspace-write')
+  assert.equal(side.cwd, await realpath(workspace))
+  assert.equal(side.restored, false)
+  assert.deepEqual((await callOwner(side.sessionId, 'list', {})).terminals, [])
+  const sidePty = await createPty(side.sessionId)
+  await write(sidePty, "printf 'SIDE_TERMINAL_READY\\n'\r")
+  await readUntil(sidePty, '\r\nSIDE_TERMINAL_READY\r\n')
+  await assert.rejects(call('read', { terminalId: sidePty.id, offset: 0 }), /没有这个终端/)
+  await assert.rejects(callOwner(side.sessionId, 'read', { terminalId: terminals[0].id, offset: 0 }), /没有这个终端/)
+  await assert.rejects(call('independent', { sessionId }), /原工作区/)
+  const otherWorkspace = join(workspace, 'separate-workspace')
+  await mkdir(otherWorkspace)
+  const otherSessionId = await createSource(otherWorkspace)
+  await assert.rejects(callOwner(otherSessionId, 'independent', { sessionId: side.sessionId }), /原工作区/)
+  const sameWorkspaceSessionId = await createSource()
+  const existing = await callOwner(sameWorkspaceSessionId, 'independent', { sessionId: side.sessionId })
+  assert.equal(existing.sessionId, side.sessionId)
+  assert.equal((await callOwner(side.sessionId, 'list', {})).terminals[0].pid, sidePty.pid)
+  report.checks.independentOwnerAndPtyIsolation = true
+  report.checks.independentSurvivesConversationSwitch = true
+
+  // Graceful cold restart proves that the dedicated owner is durable while
+  // the PTYs are accurately treated as processes that have stopped.
+  server.kill('SIGINT')
+  await until(() => server.exitCode !== null || server.signalCode !== null, 'DSH restart shutdown', 15000)
+  await until(() => terminals.every(entry => !alive(entry.pid)), 'all bound and independent PTYs stopped with DSH', 5000)
+  for (const entry of terminals) entry.endedByRestart = true
+  report.checks.independentShutdownDrainsPtys = true
+  await bootServer()
+  sessionId = await createSource()
+  const restored = await call('independent', { sessionId: side.sessionId })
+  assert.equal(restored.sessionId, side.sessionId)
+  assert.equal(restored.restored, true)
+  assert.equal(restored.mode, 'workspace-write')
+  assert.deepEqual((await callOwner(restored.sessionId, 'list', {})).terminals, [])
+  const restoredPty = await createPty(restored.sessionId)
+  await write(restoredPty, "printf 'SIDE_TERMINAL_RESUMED\\n'\r")
+  await readUntil(restoredPty, '\r\nSIDE_TERMINAL_RESUMED\r\n')
+  await callOwner(restored.sessionId, 'resize', { terminalId: restoredPty.id, lease: restoredPty.lease, rows: 31, cols: 107 })
+  await write(restoredPty, 'stty size\r')
+  await readUntil(restoredPty, '\r\n31 107\r\n')
+  report.checks.independentColdResumeAndFreshPty = true
   const html = await (await fetch(base)).text()
   assert.ok(html.includes('<html'))
   report.checks.webArtifactServed = true
@@ -175,13 +238,11 @@ try {
 } finally {
   const errors = []
   if (server && server.exitCode === null) {
-    for (const entry of terminals) {
+    for (const entry of terminals.filter(entry => !entry.endedByRestart)) {
       try {
-        await call('close', { terminalId: entry.id, lease: entry.lease ?? 'verification-settled' })
+        await callOwner(entry.ownerSessionId, 'close', { terminalId: entry.id, lease: entry.lease ?? 'verification-settled' })
       } catch (error) { errors.push(error.message) }
     }
-    try { await until(() => terminals.every(entry => !alive(entry.pid)), 'owned PTY cleanup', 5000); report.cleanup.ptyProcessesGone = true }
-    catch (error) { errors.push(error.message) }
     server.kill('SIGINT')
     try { await until(() => server.exitCode !== null || server.signalCode !== null, 'official DSH shutdown', 10000) }
     catch {
@@ -191,6 +252,8 @@ try {
       errors.push('Official DSH did not complete its normal shutdown deadline')
     }
   }
+  try { await until(() => terminals.every(entry => !alive(entry.pid)), 'owned PTY cleanup', 5000); report.cleanup.ptyProcessesGone = true }
+  catch (error) { report.cleanup.ptyProcessesGone = false; errors.push(error.message) }
   report.cleanup.errors = errors
   report.cleanup.serverStopped = !server || server.exitCode !== null || server.signalCode !== null
   report.ok = !failure && errors.length === 0 && report.cleanup.serverStopped

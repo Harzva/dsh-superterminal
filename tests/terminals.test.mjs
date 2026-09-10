@@ -175,18 +175,164 @@ test('discovered agent launchers and custom local CLI preserve argv and sandbox 
   } finally { await f.registry.stop() }
 })
 
-test('smart advice sends only explicit prompt and scoped metadata, never PTY output or commands', async () => {
+test('smart advice sends only the chosen terminal and explicit excerpt, never other PTY output or commands', async () => {
   const f = fixture(); let captured
   f.registry.ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'test', model: 'test' }) } : name === 'llm' ? { async *stream(input) { captured = input; yield { type: 'text-delta', text: '建议草稿' } } } : undefined
   try {
-    await f.registry.open(f.owner, { launcher: 'shell', requestId: 'smart-shell', rows: 24, cols: 80 })
+    const selected = await f.registry.open(f.owner, { launcher: 'shell', requestId: 'smart-shell', rows: 24, cols: 80 })
+    const other = await f.registry.open(f.owner, { launcher: 'pi', requestId: 'other-pi', rows: 24, cols: 80 })
     f.registry.append([...f.registry.owners.get(f.owner).entries.values()][0], 'PRIVATE_PTY_OUTPUT')
-    const result = await f.registry.suggest(f.owner, { prompt: '查看端口' })
+    const result = await f.registry.suggest(f.owner, { prompt: '查看端口', terminalId: selected.id, excerpt: 'EXPLICIT_SHARED_EXCERPT' })
     assert.equal(result.text, '建议草稿')
+    assert.equal(result.terminalId, selected.id)
     assert.ok(JSON.stringify(captured.messages).includes('查看端口'))
+    assert.ok(JSON.stringify(captured.messages).includes(selected.id))
+    assert.ok(JSON.stringify(captured.messages).includes('EXPLICIT_SHARED_EXCERPT'))
+    assert.ok(!JSON.stringify(captured.messages).includes(other.id))
     assert.ok(!JSON.stringify(captured.messages).includes('PRIVATE_PTY_OUTPUT'))
     assert.equal(f.handles[0].writes.length, 0)
+    await assert.rejects(f.registry.suggest(f.owner, { prompt: '解释', terminalId: 'foreign-terminal', excerpt: 'hello' }), /没有这个终端/)
+    await assert.rejects(f.registry.suggest(f.owner, { prompt: '解释', excerpt: 'unbound' }), /先选择终端/)
+    const general = await f.registry.suggest(f.owner, { prompt: '通用建议' })
+    assert.equal(general.terminalId, null)
+    assert.equal(JSON.parse(captured.messages[0].content[0].text).terminal, null)
     f.agents.delete(f.owner.id)
     await assert.rejects(f.registry.suggest(f.owner, { prompt: 'foreign' }))
   } finally { await f.registry.stop() }
+})
+
+function scopedFixture() {
+  const f = fixture({ mode: 'workspace-write' })
+  const store = new Map(), created = [], resumed = [], handles = []
+  f.owner.session = { id: f.owner.id, header: { id: f.owner.id, cwd: '/workspace' }, events: [{ seq: 0, type: 'user/message', data: { private: 'SOURCE_HISTORY' } }] }
+  f.owner.options = { provider: 'route', model: 'model', private: 'DO_NOT_COPY' }
+  f.registry.ctx.sandboxPolicy.resolve = ({ session }) => ({ mode: session.events.findLast(event => event.type === 'sandbox/mode')?.data.mode ?? 'workspace-write', workspaceRoot: session.header.cwd })
+  f.registry.ctx.get = name => name === 'sessionPersistence' ? { async list() { return [...store.values()].map(item => item.session.header) } } : name === 'sandbox' ? { confine: argv => ({ argv }) } : undefined
+  const prepare = async (options, restored) => {
+    const id = options.sessionId ?? options.resumeSessionId
+    const effects = []
+    const session = restored ? structuredClone(store.get(id).session) : { id, header: { id, cwd: options.meta.cwd }, events: structuredClone(options.seed) }
+    const agent = { id, session, options: options.agentOptions, ctx: { on() { return () => {} }, effect(factory) { const dispose = factory(); effects.push(dispose); return dispose } } }
+    agent.ctx.agent = agent
+    const commit = await options.setup(agent.ctx)
+    options.signal.throwIfAborted()
+    commit?.commit()
+    f.agents.set(id, agent)
+    store.set(id, { session })
+    const handle = { agent, disposed: false, async dispose() { this.disposed = true; for (const dispose of effects) await dispose(); f.agents.delete(id) } }
+    handles.push(handle)
+    return handle
+  }
+  f.agents.create = async options => { created.push(options); return prepare(options, false) }
+  f.agents.resume = async options => { resumed.push(options); return prepare(options, true) }
+  return { ...f, store, created, resumed, agentHandles: handles }
+}
+
+test('independent terminals use a distinct durable workspace owner without inheriting dialogue or permissions', async () => {
+  const f = scopedFixture()
+  try {
+    const [a, b] = await Promise.all([f.registry.independent(f.owner, {}), f.registry.independent(f.owner, {})])
+    assert.equal(a.sessionId, b.sessionId)
+    assert.notEqual(a.sessionId, f.owner.id)
+    assert.equal(f.created.length, 1)
+    const independent = f.agents.get(a.sessionId)
+    assert.deepEqual(independent.options, { provider: 'route', model: 'model' })
+    assert.equal(JSON.stringify(independent.session.events).includes('SOURCE_HISTORY'), false)
+    assert.equal(f.registry.ctx.sandboxPolicy.resolve({ session: independent.session }).mode, 'workspace-write')
+    const sourceTerminal = await open(f.registry, f.owner, 'source')
+    await assert.rejects(f.registry.read(independent, { terminalId: sourceTerminal.id, offset: 0 }), /没有这个终端/)
+    const prior = await f.registry.independent(f.owner, { sessionId: a.sessionId })
+    assert.equal(prior.restored, true)
+    await f.agentHandles[0].dispose()
+    const restored = await f.registry.independent(f.owner, { sessionId: a.sessionId })
+    assert.equal(restored.sessionId, a.sessionId)
+    assert.equal(restored.restored, true)
+    assert.equal(f.resumed.length, 1)
+    assert.deepEqual((await f.registry.list(f.agents.get(a.sessionId), {})).terminals, [])
+  } finally { await f.registry.stop() }
+  assert.ok(f.agentHandles.every(handle => handle.disposed))
+})
+
+test('independent restore rejects other workspaces, forged scope records, and changed policy', async () => {
+  const f = scopedFixture()
+  try {
+    const first = await f.registry.independent(f.owner, {})
+    await assert.rejects(f.registry.independent(f.owner, { sessionId: f.owner.id }), /原工作区/)
+    const foreign = { ...f.owner, id: 'foreign', session: { ...f.owner.session, header: { cwd: '/other-workspace' } } }
+    f.agents.set(foreign.id, foreign)
+    await assert.rejects(f.registry.independent(foreign, { sessionId: first.sessionId }), /原工作区/)
+    const target = f.agents.get(first.sessionId)
+    target.session.events[0].data.workspaceRoot = '/forged-workspace'
+    await assert.rejects(f.registry.independent(f.owner, { sessionId: first.sessionId }), /不属于当前工作区/)
+    target.session.events[0].data.workspaceRoot = '/workspace'
+    target.session.events.push({ type: 'sandbox/mode', data: { mode: 'danger-full-access' } })
+    await assert.rejects(f.registry.independent(f.owner, { sessionId: first.sessionId }), /权限已变化/)
+  } finally { await f.registry.stop() }
+})
+
+test('independent creation rechecks source policy and plugin shutdown cancels pending ownership', async () => {
+  for (const shutdown of [false, true]) {
+    const f = scopedFixture()
+    const gate = Promise.withResolvers()
+    const create = f.agents.create
+    f.agents.create = async options => { await gate.promise; return create(options) }
+    const pending = f.registry.independent(f.owner, {})
+    const rejected = assert.rejects(pending)
+    await new Promise(resolve => setImmediate(resolve))
+    let stopped
+    if (shutdown) stopped = f.registry.stop()
+    else f.owner.session.events.push({ type: 'sandbox/mode', data: { mode: 'read-only' } })
+    gate.resolve()
+    await rejected
+    assert.equal(f.agentHandles.length, 0)
+    assert.equal(f.registry.independentScopes.pending.size, 0)
+    await (stopped ?? f.registry.stop())
+  }
+})
+
+test('plugin shutdown drains PTYs before disposing dedicated owners and is single-shot', async () => {
+  const f = scopedFixture()
+  const side = await f.registry.independent(f.owner, {})
+  const sideOwner = f.agents.get(side.sessionId)
+  await open(f.registry, f.owner, 'bound')
+  await open(f.registry, sideOwner, 'side')
+  const handle = f.agentHandles[0]
+  const dispose = handle.dispose.bind(handle)
+  let disposals = 0
+  handle.dispose = async () => {
+    assert.ok(f.handles.every(pty => pty.terminated), 'PTYs drain before owner disposal')
+    disposals++
+    await dispose()
+  }
+  const first = f.registry.stop()
+  assert.equal(f.registry.stop(), first)
+  await first
+  assert.equal(disposals, 1)
+})
+
+test('a validated existing owner is tracked without taking ownership of its DSH lifecycle', async () => {
+  const f = scopedFixture()
+  const side = await f.registry.independent(f.owner, {})
+  const owner = f.agents.get(side.sessionId)
+  // Simulate the same durable owner already resumed by the runtime, not this plugin.
+  f.registry.independentScopes.handles.clear()
+  f.registry.owners.clear()
+  await f.registry.independent(f.owner, { sessionId: side.sessionId })
+  assert.ok(f.registry.owners.has(owner))
+  await open(f.registry, owner)
+  await f.registry.stop()
+  assert.ok(f.handles.every(handle => handle.terminated))
+  assert.equal(f.agentHandles[0].disposed, false)
+  assert.equal(f.agents.get(side.sessionId), owner)
+})
+
+test('asynchronous title failure rolls back the new independent owner before reporting failure', async () => {
+  const f = scopedFixture()
+  const get = f.registry.ctx.get
+  f.registry.ctx.get = name => name === 'sessionTitle' ? { async rename() { await Promise.resolve(); throw new Error('title failed') } } : get(name)
+  await assert.rejects(f.registry.independent(f.owner, {}), /title failed/)
+  assert.equal(f.agentHandles[0].disposed, true)
+  assert.equal(f.agents.size, 1)
+  assert.equal(f.registry.independentScopes.handles.size, 0)
+  await f.registry.stop()
 })
