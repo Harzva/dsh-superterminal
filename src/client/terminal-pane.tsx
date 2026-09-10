@@ -14,6 +14,11 @@ type Props = {
   visible: boolean;
   zoomed: boolean;
   autoClaim: boolean;
+  title?: string;
+  draft?: { id: string; text: string };
+  onTitleChange?(title: string): void;
+  onHide?(): void;
+  onSelection?(text: string): void;
   onFocus(): void;
   onZoom(): void;
   onSplit(axis: 'x' | 'y'): void;
@@ -62,14 +67,37 @@ export function TerminalPane(props: Props) {
   const [state, setState] = useState(props.terminal.state);
   const [exitCode, setExitCode] = useState(props.terminal.exitCode);
   const [bell, setBell] = useState(false);
-  const [title, setTitle] = useState('');
+  const [localTitle, setLocalTitle] = useState('');
+  const title = props.title ?? localTitle;
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [draftCopy, setDraftCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [fontSize, setFontSize] = useState(12);
   const [gap, setGap] = useState(false);
   const [readError, setReadError] = useState('');
   const [controlError, setControlError] = useState('');
   const [size, setSize] = useState({ rows: props.terminal.rows, cols: props.terminal.cols });
+
+  const commitTitle = () => {
+    const value = titleDraft.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 48);
+    setLocalTitle(value);
+    props.onTitleChange?.(value);
+    setEditingTitle(false);
+  };
+
+  useEffect(() => { setDraftCopy('idle'); }, [props.draft?.id, props.draft?.text]);
+
+  const copyDraft = async () => {
+    if (!props.draft) return;
+    const current = props.draft;
+    try {
+      await navigator.clipboard.writeText(current.text);
+      if (mountedRef.current && propsRef.current.draft?.id === current.id) setDraftCopy('copied');
+    } catch {
+      if (mountedRef.current && propsRef.current.draft?.id === current.id) setDraftCopy('failed');
+    }
+  };
 
   const inputAllowed = useCallback(() => (
     mountedRef.current && readyRef.current && readableRef.current && !gapRef.current &&
@@ -257,6 +285,9 @@ export function TerminalPane(props: Props) {
     fitRef.current = fit;
     const inputDisposable = term.onData(send);
     const bellDisposable = term.onBell(() => { if (!canceled) setBell(true); });
+    const selectionDisposable = term.onSelectionChange(() => {
+      if (!canceled) propsRef.current.onSelection?.(term.getSelection().slice(0, 4000));
+    });
     term.attachCustomKeyEventHandler(event => !(event.altKey && event.shiftKey && (
       event.key.startsWith('Arrow') || event.key === 'Enter'
     )));
@@ -265,7 +296,7 @@ export function TerminalPane(props: Props) {
 
     const poll = async () => {
       if (canceled || gapRef.current) return;
-      let delay = 100;
+      let delay = propsRef.current.visible ? 100 : 1000;
       try {
         const result = await propsRef.current.bridge.read({ terminalId: propsRef.current.terminal.id, offset });
         if (canceled) return;
@@ -319,6 +350,8 @@ export function TerminalPane(props: Props) {
       observer.disconnect();
       inputDisposable.dispose();
       bellDisposable.dispose();
+      selectionDisposable.dispose();
+      propsRef.current.onSelection?.('');
       resolveWrite?.();
       term.dispose();
       terminalRef.current = null;
@@ -370,12 +403,12 @@ export function TerminalPane(props: Props) {
         {editingTitle ? <input className="dt-title-input" autoFocus maxLength={48}
           aria-label={`终端 ${props.number} 名称`} value={titleDraft}
           onChange={event => setTitleDraft(event.target.value)}
-          onBlur={() => { setTitle(titleDraft.trim()); setEditingTitle(false); }}
+          onBlur={commitTitle}
           onKeyDown={event => {
             event.stopPropagation();
-            if (event.key === 'Enter') { event.preventDefault(); setTitle(titleDraft.trim()); setEditingTitle(false); }
+            if (event.key === 'Enter') { event.preventDefault(); commitTitle(); }
             if (event.key === 'Escape') { event.preventDefault(); setEditingTitle(false); }
-          }} /> : <button className="dt-pane-title" title={`${props.terminal.launcher} · 点击命名（当前视图）`}
+          }} /> : <button className="dt-pane-title" title={`${props.terminal.launcher} · 点击命名任务`}
           aria-label={`重命名终端 ${props.number}`} onClick={() => { setTitleDraft(title); setEditingTitle(true); }}>
           {title || props.terminal.launcher}</button>}
         <span className={`dt-state dt-state-${state}`}>{props.connected ? stateLabel(state, exitCode) : '连接中断'}</span>
@@ -387,10 +420,29 @@ export function TerminalPane(props: Props) {
           aria-label={`上下分割终端 ${props.number}`}><span className="dt-split-vertical">◫</span></button>
         <button className="dt-icon-button" onClick={props.onZoom} title={props.zoomed ? '还原布局' : '放大此窗格'}
           aria-label={props.zoomed ? '还原布局' : `放大终端 ${props.number}`}>{props.zoomed ? '↙' : '⤢'}</button>
-        <button className="dt-icon-button dt-close" onClick={() => { void close(); }} disabled={(!owned && !settled) || closing || claiming}
-          title={settled ? '移除已结束的终端' : owned ? '关闭终端并结束进程' : '接管后可关闭终端并结束进程'} aria-label={`关闭终端 ${props.number} 并结束进程`}>×</button>
+        {props.onHide && <button className="dt-icon-button" onClick={props.onHide} title="收起终端，任务继续运行"
+          aria-label={`收起终端 ${props.number}`}>−</button>}
+        <button className="dt-icon-button dt-close" onClick={() => setConfirmClose(true)} disabled={(!owned && !settled) || closing || claiming}
+          title={settled ? '移除已结束的任务' : owned ? '结束任务' : '接管后可结束任务'} aria-label={`结束终端 ${props.number} 的任务`}>×</button>
       </header>
+      {confirmClose && <div className="dt-pane-confirm" role="alertdialog" aria-label="确认结束任务">
+        <p>{settled ? '移除这个已结束的任务？' : '结束这个任务？当前运行会停止。'}</p>
+        <div>
+          <button onClick={() => setConfirmClose(false)} disabled={closing}>取消</button>
+          <button className="dt-danger" onClick={() => { setConfirmClose(false); void close(); }}
+            disabled={(!owned && !settled) || closing || claiming}>{settled ? '移除任务' : '结束任务'}</button>
+        </div>
+      </div>}
       <div className="dt-terminal-scroll"><div className="dt-terminal-host" ref={hostRef} /></div>
+      {props.draft && <div className="dt-pane-draft">
+        <div className="dt-pane-draft-actions"><strong>待发送草稿</strong>
+          <button onClick={() => { void copyDraft(); }}>{draftCopy === 'copied' ? '已复制' : '复制草稿'}</button>
+        </div>
+        <textarea readOnly aria-label={`终端 ${props.number} 待发送草稿`} value={props.draft.text} rows={3}
+          onKeyDown={event => event.stopPropagation()} />
+        <span role="status">{draftCopy === 'failed' ? '未能复制，请选中文字手动复制。' : draftCopy === 'copied'
+          ? '已复制。请检查终端当前输入位置后粘贴。' : '检查内容后，可复制到这个终端。'}</span>
+      </div>}
       {gap && <div className="dt-pane-notice dt-danger" role="alert">输出缓冲已截断，无法准确恢复画面，输入已停用。接管后可关闭此终端，再新建。</div>}
       {props.connected && !gap && readError && <div className="dt-pane-notice" role="status">输出读取失败：{readError}。暂停输入，正在重试读取…</div>}
       {!gap && !readError && !ready && <div className="dt-pane-notice" role="status">正在读取真实终端输出…</div>}

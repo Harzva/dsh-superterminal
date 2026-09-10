@@ -14,7 +14,7 @@ await build({
   platform: 'browser',
   target: ['es2022'],
   jsx: 'automatic',
-  external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@deepseek-ai/dsh-client-runtime/client'],
+  external: ['react-dom', 'react', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@deepseek-ai/dsh-client-runtime/client'],
   sourcemap: false,
   minify: true,
   legalComments: 'none',

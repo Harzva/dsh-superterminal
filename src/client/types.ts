@@ -19,7 +19,7 @@ export interface TerminalLauncher {
 
 export interface TerminalBridge {
   inventory(): Promise<{agents: AgentRecord[]; checkedAt:string}>;
-  suggest(input:{prompt:string}): Promise<{text:string;model:string}>;
+  suggest(input:{prompt:string;terminalId?:string;excerpt?:string}): Promise<{text:string;model:string;terminalId?:string|null}>;
   list(): Promise<{ terminals: TerminalSummary[]; launchers: TerminalLauncher[]; cwd: string }>;
   open(input: { launcher: string; rows: number; cols: number; requestId: string }): Promise<TerminalSummary>;
   read(input: { terminalId: string; offset: number }): Promise<{
