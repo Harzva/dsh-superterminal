@@ -1,5 +1,13 @@
 Runtime dependencies bundled with DSH Terminal
 
+bash-preexec v0.6.0
+Source: https://github.com/rcaloras/bash-preexec
+Vendored from Wave Terminal's shell integration copy, with its complete MIT
+license preserved inside src/bash-preexec.mjs and the published lib module.
+Copyright (c) 2017 Ryan Caloras and contributors.
+License: MIT (permission and warranty terms are included with the vendored code).
+
+
 @xterm/xterm
 Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
 Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)

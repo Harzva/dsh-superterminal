@@ -87,6 +87,49 @@ test('journal refuses foreign records, replaced owners, identity changes, failed
   await assert.rejects(journal.put(f.owner, task()), /已关闭/)
 })
 
+test('cold recovery restores a partially committed rework relationship without executing or accepting it', async () => {
+  const f=fixture(), first=new HandoffJournal(f.ctx)
+  await first.put(f.owner,task())
+  assert.equal((await first.list(f.owner))[0].acceptance,'pending')
+  await first.put(f.owner,task({id:'child',requestId:'child-request',fingerprint:'b'.repeat(64),parentTaskId:'task-1',
+    reworkIssues:'Correct the boundary',previousResult:'Untrusted prior result',status:'queued',result:undefined,createdAt:30,updatedAt:30}))
+  // Simulate the process ending before the separate parent link was written.
+  assert.equal((await first.list(f.owner)).find(row=>row.id==='task-1').acceptance,'pending')
+  await first.close()
+  const second=new HandoffJournal(f.ctx), rows=await second.list(f.owner)
+  const parent=rows.find(row=>row.id==='task-1'),child=rows.find(row=>row.id==='child')
+  assert.equal(parent.acceptance,'rework'); assert.equal(parent.reworkTaskId,'child')
+  assert.equal(parent.reviewRequestId,'child-request'); assert.equal(parent.reviewedAt,30)
+  assert.equal(child.parentTaskId,'task-1'); assert.equal(child.status,'interrupted'); assert.equal(child.acceptance,'pending')
+  assert.equal(f.stats().followed,0)
+  await second.close()
+})
+
+test('journal rejects missing or forged parent provenance even after the source terminal has disappeared', async () => {
+  const f=fixture(), journal=new HandoffJournal(f.ctx)
+  await journal.put(f.owner,task())
+  const child=task({id:'child',requestId:'child-request',fingerprint:'b'.repeat(64),parentTaskId:'task-1',reworkIssues:'Fix'})
+  await assert.rejects(journal.put(f.owner,{...child,parentTaskId:'missing'}),/来源不属于/)
+  await assert.rejects(journal.put(f.owner,{...child,sourceTerminalId:'foreign-terminal'}),/来源不属于/)
+  await assert.rejects(journal.put(f.owner,{...child,sourceLauncher:'shell'}),/来源不属于/)
+  await journal.put(f.owner,child)
+  await assert.rejects(journal.put(f.owner,{...child,parentTaskId:undefined}),/来源不可更改/)
+  await journal.close()
+})
+
+test('accepted records survive cold reads and refuse stale pending writes or changed acceptance notes', async () => {
+  const f=fixture(), journal=new HandoffJournal(f.ctx)
+  const accepted=task({acceptance:'accepted',reviewRequestId:'accept-1',reviewedAt:30,reviewNotes:'Checked'})
+  await journal.put(f.owner,accepted)
+  await assert.rejects(journal.put(f.owner,task()),/不可覆盖/)
+  await assert.rejects(journal.put(f.owner,{...accepted,reviewNotes:'Rewritten'}),/不可覆盖/)
+  await journal.close()
+  const reopened=new HandoffJournal(f.ctx)
+  const restored=(await reopened.list(f.owner))[0]
+  assert.equal(restored.acceptance,'accepted'); assert.equal(restored.reviewedAt,30)
+  await reopened.close()
+})
+
 test('concurrent return calls queue one plugin notice into the original session and await durability', async () => {
   const f = fixture()
   f.ctx.current = { id: 'unrelated-ui-selection' }
@@ -101,6 +144,16 @@ test('concurrent return calls queue one plugin notice into the original session 
   assert.match(message.content[0].text, /任务成果仍需核验/)
   await returnHandoffResult({ ...f, task: task() })
   assert.equal(f.stats().followed, 1)
+})
+
+test('result delivery includes immutable rework context while later acceptance does not change its delivery identity', async () => {
+  const f=fixture(), child=task({id:'child',parentTaskId:'parent',reworkIssues:'Correct the boundary',previousResult:'PRIVATE_PRIOR_RESULT'})
+  await returnHandoffResult({...f,task:child})
+  await returnHandoffResult({...f,task:{...child,acceptance:'accepted',reviewedAt:99,reviewNotes:'Verified'}})
+  assert.equal(f.stats().followed,1)
+  const text=f.owner.session.events[0].data.inserted[0].content[0].text
+  assert.match(text,/返工来源：parent/); assert.match(text,/Correct the boundary/)
+  assert.doesNotMatch(text,/PRIVATE_PRIOR_RESULT|Verified/)
 })
 
 test('a lost durability acknowledgement retries the checkpoint without duplicating a consumed message', async () => {

@@ -14,7 +14,12 @@ export const handoffRecordSchema = z.object({
   delivery: z.enum(['none', 'queued', 'failed', 'uncertain']),
   result: z.string().max(16000).optional(), error: z.string().max(1000).optional(),
   createdAt: time, updatedAt: time, exitCode: z.number().int().nullable(),
+  executionFinishedAt: time.optional(),
   messageId: id.optional(),
+  acceptance: z.enum(['pending', 'accepted', 'rework']).default('pending'),
+  reviewedAt: time.optional(), reviewNotes: z.string().max(2000).optional(), reviewRequestId: id.optional(),
+  parentTaskId: id.optional(), reworkTaskId: id.optional(),
+  reworkIssues: z.string().min(1).max(4000).optional(), previousResult: z.string().max(8000).optional(),
 }).strict()
 
 // Native non-session storage: external event names cannot safely round-trip
@@ -67,6 +72,17 @@ export class HandoffJournal {
 
   async recover(owner, table, signal) {
     if (this.recovered.has(owner)) return
+    // A crash may land after the child record but before its parent link. The
+    // durable child is sufficient to restore that relationship, never to run it.
+    for (const [, child] of table.entries()) {
+      if (child.sourceSessionId !== owner.id || !child.parentTaskId) continue
+      const key = keyOf(owner.id, child.parentTaskId), parent = table.get(key)
+      if (!parent || parent.sourceSessionId !== owner.id || parent.acceptance === 'accepted' || parent.reworkTaskId) continue
+      assertHandoffOwner(this.ctx, owner, signal)
+      await table.put(key, handoffRecordSchema.parse({ ...parent, acceptance: 'rework', reworkTaskId: child.id,
+        reviewedAt: child.createdAt, reviewRequestId: child.requestId, reviewNotes: (child.reworkIssues ?? '').slice(0, 2000),
+        updatedAt: Math.max(parent.updatedAt, child.createdAt) }))
+    }
     for (const [key, task] of table.entries()) {
       if (task.sourceSessionId !== owner.id || (task.status !== 'queued' && task.status !== 'running')) continue
       assertHandoffOwner(this.ctx, owner, signal)
@@ -100,6 +116,20 @@ export class HandoffJournal {
       const previous = table.get(key)
       if (previous && (previous.requestId !== clean.requestId || previous.fingerprint !== clean.fingerprint)) {
         throw new Error('交接记录身份不匹配')
+      }
+      if (previous && previous.parentTaskId !== clean.parentTaskId) throw new Error('返工来源不可更改')
+      if (previous?.acceptance === 'accepted' && (clean.acceptance !== 'accepted' ||
+        clean.reviewRequestId !== previous.reviewRequestId || clean.reviewedAt !== previous.reviewedAt || clean.reviewNotes !== previous.reviewNotes)) {
+        throw new Error('已保存的验收记录不可覆盖')
+      }
+      if (clean.acceptance !== 'pending' && (clean.reviewedAt === undefined || !clean.reviewRequestId ||
+        (clean.acceptance === 'rework' && !clean.reworkTaskId))) throw new Error('验收或返工记录不完整')
+      if (clean.parentTaskId) {
+        const parent = table.get(keyOf(owner.id, clean.parentTaskId))
+        if (clean.parentTaskId === clean.id || !parent || parent.sourceSessionId !== owner.id ||
+          parent.sourceTerminalId !== clean.sourceTerminalId || parent.sourceLauncher !== clean.sourceLauncher) {
+          throw new Error('返工来源不属于当前会话')
+        }
       }
       await table.put(key, clean)
       assertHandoffOwner(this.ctx, owner, signal)

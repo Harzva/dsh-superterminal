@@ -11,10 +11,12 @@ function fixture({ delayed = false, mode = 'danger-full-access' } = {}) {
   } }
   agents.set(owner.id, owner)
   let resolveSpawn
+  const allocation = Promise.withResolvers()
   const gate = delayed ? new Promise(resolve => { resolveSpawn = resolve }) : Promise.resolve()
   const ctx = { agents, get: () => undefined, sandboxPolicy: { defaultMode: mode, resolve: () => ({ mode, workspaceRoot: '/tmp' }) }, subprocess: {
     resolveExecutable: async command => `/bin/${command}`,
     async spawnTerminal(spec) {
+      allocation.resolve()
       await gate
       const finished = Promise.withResolvers()
       const output = new PassThrough()
@@ -27,7 +29,7 @@ function fixture({ delayed = false, mode = 'danger-full-access' } = {}) {
       return handle
     },
   } }
-  return { registry: new NativeTerminals(ctx, () => undefined, { assertProvider() {}, adaptHandle: handle => handle }), owner, agents, hooks, disposers, handles, release: () => resolveSpawn?.() }
+  return { registry: new NativeTerminals(ctx, () => undefined, { assertProvider() {}, adaptHandle: handle => handle }), owner, agents, hooks, disposers, handles, allocated: allocation.promise, release: () => resolveSpawn?.() }
 }
 const open = (registry, owner, requestId = 'create-1') => registry.open(owner, { launcher: 'shell', requestId, rows: 24, cols: 80 })
 
@@ -86,7 +88,7 @@ test('owner disposal during allocation waits for and terminates the late handle'
   const f = fixture({ delayed: true })
   const pending = open(f.registry, f.owner)
   const rejected = assert.rejects(pending, /失效|disposed/)
-  await new Promise(resolve => setImmediate(resolve))
+  await f.allocated
   const disposing = f.disposers[0]()
   f.release()
   await Promise.all([rejected, disposing])
@@ -177,7 +179,7 @@ test('discovered agent launchers and custom local CLI preserve argv and sandbox 
 
 test('smart advice sends only the chosen terminal and explicit excerpt, never other PTY output or commands', async () => {
   const f = fixture(); let captured
-  f.registry.ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'test', model: 'test' }) } : name === 'llm' ? { async *stream(input) { captured = input; yield { type: 'text-delta', text: '建议草稿' } } } : undefined
+  f.registry.ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'test', model: 'test' }) } : name === 'llm' ? { async *stream(input) { captured = input; yield { type: 'text-delta', text: '建议草稿' }; yield { type: 'finish', reason: { kind: 'stop' } } } } : undefined
   try {
     const selected = await f.registry.open(f.owner, { launcher: 'shell', requestId: 'smart-shell', rows: 24, cols: 80 })
     const other = await f.registry.open(f.owner, { launcher: 'pi', requestId: 'other-pi', rows: 24, cols: 80 })
@@ -199,6 +201,87 @@ test('smart advice sends only the chosen terminal and explicit excerpt, never ot
     f.agents.delete(f.owner.id)
     await assert.rejects(f.registry.suggest(f.owner, { prompt: 'foreign' }))
   } finally { await f.registry.stop() }
+})
+
+test('smart advice respects explicit reasoning and uses quick answers only when the exact model supports them', async () => {
+  const f = fixture(); let captured, inspected = 0
+  let route = { provider: 'test-provider', model: 'test-model' }
+  let efforts = [{ id: 'off' }, { id: 'high' }]
+  const llm = {
+    async resolveModelInfo(provider, model, signal) {
+      assert.equal(provider, route.provider); assert.equal(model, route.model); assert.ok(signal)
+      inspected++; return { reasoning: { efforts, defaultEffort: 'high' } }
+    },
+    async *stream(input) { captured = input; yield { type: 'text-delta', text: '建议' }; yield { type: 'finish', reason: { kind: 'stop' } } },
+  }
+  f.registry.ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => route } : name === 'llm' ? llm : undefined
+  try {
+    await f.registry.suggest(f.owner, { prompt: '解释失败' })
+    assert.equal(captured.reasoningEffort, 'off'); assert.equal(captured.maxTokens, 8192)
+    route = { ...route, reasoningEffort: 'high' }
+    await f.registry.suggest(f.owner, { prompt: '解释失败' })
+    assert.equal(captured.reasoningEffort, 'high'); assert.equal(inspected, 1)
+    route = { provider: route.provider, model: route.model }; efforts = [{ id: 'high' }]
+    await f.registry.suggest(f.owner, { prompt: '解释失败' })
+    assert.equal(Object.hasOwn(captured, 'reasoningEffort'), false)
+  } finally { await f.registry.stop() }
+})
+
+test('smart advice rejects reasoning exhaustion, partial failures and incomplete streams without leaking provider text', async () => {
+  const f = fixture()
+  let chunks
+  f.registry.ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'test', model: 'test' }) } : name === 'llm' ? { async *stream() { yield* chunks } } : undefined
+  const failure = { code: 'AUTH', status: 401, message: 'SECRET_PROVIDER_BODY sk-private /private/credentials.json' }
+  const cases = [
+    [[{ type: 'reasoning-delta', text: 'thinking' }, { type: 'finish', reason: { kind: 'max-tokens' } }], 'SUGGEST_LIMIT'],
+    [[{ type: 'text-delta', text: 'partial answer' }, { type: 'finish', reason: { kind: 'max-tokens' } }], 'SUGGEST_LIMIT'],
+    [[{ type: 'text-delta', text: 'partial answer' }, { type: 'finish', reason: { kind: 'error', failure } }], 'SUGGEST_AUTH'],
+    [[{ type: 'finish', reason: { kind: 'error', failure: { ...failure, code: 'SERVER', status: 503 } } }], 'SUGGEST_PROVIDER'],
+    [[{ type: 'text-delta', text: 'partial answer' }], 'SUGGEST_INCOMPLETE'],
+    [[{ type: 'finish', reason: { kind: 'tool-calls' } }], 'SUGGEST_INCOMPLETE'],
+    [[{ type: 'finish', reason: { kind: 'stop' } }], 'SUGGEST_EMPTY'],
+    [[{ type: 'finish', reason: { kind: 'aborted', failure } }], 'SUGGEST_CANCELLED'],
+  ]
+  try {
+    for (const [events, code] of cases) {
+      chunks = events
+      await assert.rejects(f.registry.suggest(f.owner, { prompt: '解释失败' }), error => {
+        assert.equal(error.code, code)
+        assert.doesNotMatch(String(error), /SECRET_PROVIDER|sk-private|credentials|partial answer/)
+        return true
+      })
+    }
+    chunks = [{ type: 'text-delta', text: '完整建议' }, { type: 'finish', reason: { kind: 'stop' } }]
+    assert.equal((await f.registry.suggest(f.owner, { prompt: '重试' })).text, '完整建议')
+  } finally { await f.registry.stop() }
+})
+
+test('smart advice classifies timeout and cancellation and sanitizes capability lookup failures', async t => {
+  const f = fixture(); let entered, mode = 'wait'
+  const llm = {
+    async resolveModelInfo() {
+      if (mode === 'lookup-error') throw Object.assign(new Error('SECRET_PROVIDER_BODY'), { code: 'AUTH' })
+      return {}
+    },
+    async *stream(input) {
+      entered.resolve()
+      await new Promise(resolve => input.signal.addEventListener('abort', resolve, { once: true }))
+      yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED' } } }
+    },
+  }
+  f.registry.ctx.get = name => name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'test', model: 'test' }) } : name === 'llm' ? llm : undefined
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    entered = Promise.withResolvers()
+    const timed = assert.rejects(f.registry.suggest(f.owner, { prompt: '解释' }), { code: 'SUGGEST_TIMEOUT' })
+    await entered.promise; t.mock.timers.tick(60000); await timed
+    entered = Promise.withResolvers()
+    const controller = new AbortController()
+    const cancelled = assert.rejects(f.registry.suggest(f.owner, { prompt: '解释' }, controller.signal), { code: 'SUGGEST_CANCELLED' })
+    await entered.promise; controller.abort(); await cancelled
+    mode = 'lookup-error'
+    await assert.rejects(f.registry.suggest(f.owner, { prompt: '解释' }), error => error.code === 'SUGGEST_AUTH' && !error.message.includes('SECRET_PROVIDER'))
+  } finally { t.mock.timers.reset(); await f.registry.stop() }
 })
 
 function scopedFixture() {
@@ -334,5 +417,43 @@ test('asynchronous title failure rolls back the new independent owner before rep
   assert.equal(f.agentHandles[0].disposed, true)
   assert.equal(f.agents.size, 1)
   assert.equal(f.registry.independentScopes.handles.size, 0)
+  await f.registry.stop()
+})
+
+test('command snapshots are owner scoped and reconnect without replaying private shell frames into the terminal', async () => {
+  const f = fixture()
+  const terminal = await open(f.registry, f.owner)
+  const entry = f.registry.entry(f.owner, terminal.id)
+  const nonce = entry.commands.nonce
+  const marker = (type, sequence, payload = '') => `\x1b]777;dsh-command;${nonce};${sequence};${type};${payload}\x07`
+  f.handles[0].output.write(marker('R', 0) + 'PROMPT> ' + marker('C', 1, '0;' + Buffer.from('false').toString('base64')) + 'command output\r\n' + marker('D', 1, '1') + 'PROMPT> ')
+  await new Promise(resolve => setImmediate(resolve))
+  const snapshot = await f.registry.commands(f.owner, { terminalId: terminal.id, lastN: 20 })
+  assert.equal(snapshot.records[0].command, 'false'); assert.equal(snapshot.records[0].exitCode, 1)
+  assert.equal(snapshot.records[0].output, 'command output\n')
+  const reconnected = await f.registry.commands(f.owner, { terminalId: terminal.id })
+  assert.deepEqual(reconnected.records, snapshot.records)
+  const replay = await f.registry.read(f.owner, { terminalId: terminal.id, offset: 0 })
+  assert.equal(replay.data, 'PROMPT> command output\r\nPROMPT> ')
+  const foreign = { ...f.owner, id: 'foreign-commands' }; f.agents.set(foreign.id, foreign)
+  await assert.rejects(f.registry.commands(foreign, { terminalId: terminal.id }), /没有这个终端/)
+  await assert.rejects(f.registry.commands(f.owner, { terminalId: terminal.id, lastN: 51 }))
+  const agent = await f.registry.open(f.owner, { launcher: 'pi', requestId: 'native-agent', rows: 24, cols: 80 })
+  assert.equal(f.handles[1].spec.env.ZDOTDIR, undefined)
+  assert.equal((await f.registry.commands(f.owner, { terminalId: agent.id })).status, 'unavailable')
+  await f.registry.stop()
+})
+
+test('shell process exit never supplies a missing command exit code', async () => {
+  const f = fixture(), terminal = await open(f.registry, f.owner)
+  const entry = f.registry.entry(f.owner, terminal.id)
+  const marker = (type, sequence, data = '') => `\x1b]777;dsh-command;${entry.commands.nonce};${sequence};${type};${data}\x07`
+  f.handles[0].output.write(marker('R', 0) + marker('C', 1, '0;' + Buffer.from('exec a-process').toString('base64')) + 'partial output')
+  await f.handles[0].terminate()
+  await entry.completion
+  const snapshot = await f.registry.commands(f.owner, { terminalId: terminal.id })
+  assert.equal(entry.exitCode, 0)
+  assert.equal(snapshot.records[0].status, 'interrupted'); assert.equal(snapshot.records[0].exitCode, null)
+  assert.equal(snapshot.records[0].output, 'partial output')
   await f.registry.stop()
 })

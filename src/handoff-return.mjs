@@ -16,6 +16,8 @@ function makeMessage(task) {
     `交接编号：${task.id}`,
     `来源：${task.sourceLauncher} · 终端 ${task.sourceTerminalId}`,
     `执行者：${task.targetLauncher}`,
+    task.parentTaskId ? `返工来源：${task.parentTaskId}` : '',
+    task.reworkIssues ? `本次需修改的问题：${String(task.reworkIssues).slice(0, 4000)}` : '',
     `进程结果：${task.status === 'succeeded' ? '正常结束，任务成果仍需核验' : '执行失败'}`,
     `任务：${String(task.prompt ?? '').slice(0, 8000)}`,
     task.criteria ? `验收要求：${String(task.criteria).slice(0, 4000)}` : '',

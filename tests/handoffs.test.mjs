@@ -39,7 +39,145 @@ function fixture(options = {}) {
 }
 
 const piResult = text => [{ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text }], stopReason: 'stop' } }, { type: 'agent_end' }]
+async function completed(f, changes) {
+  const task = await f.start(changes)
+  await tick(); f.handles.at(-1).finish(piResult('Returned result for review'))
+  return settle(f, task)
+}
 async function settle(f, task) { const job = f.handoffs.states.get(f.owner).active.get(task.id); if (job) await job.done; return (await f.handoffs.list(f.owner)).tasks.find(row => row.id === task.id) }
+
+test('explicit acceptance is durable and idempotent without changing execution completion or accepting future work', async () => {
+  const f = fixture(), original = await completed(f)
+  assert.equal(original.acceptance, 'pending'); assert.equal(typeof original.executionFinishedAt, 'number')
+  const input = {taskId: original.id, requestId: 'accept-1', notes: 'Checked the stated criteria'}
+  const first = await f.handoffs.accept(f.owner, input)
+  const replay = await f.handoffs.accept(f.owner, input)
+  assert.equal(first.acceptance, 'accepted'); assert.equal(replay.reviewedAt, first.reviewedAt)
+  assert.equal(first.executionFinishedAt, original.executionFinishedAt)
+  assert.equal(f.records.get(original.id).reviewNotes, input.notes)
+  assert.equal((await f.handoffs.accept(f.owner, {...input, notes:'changed'})).rejected, true)
+  assert.equal((await f.handoffs.rework(f.owner, {taskId: original.id, requestId:'rework-accepted', issues:'Change it'})).rejected, true)
+  await f.handoffs.returnResult(f.owner, {taskId:original.id})
+  assert.equal(f.records.get(original.id).acceptance, 'accepted')
+  assert.equal(f.records.get(original.id).executionFinishedAt, original.executionFinishedAt)
+  const foreign = {id:'other',session:{events:[]}}; f.agents.set(foreign.id,foreign)
+  await assert.rejects(f.handoffs.accept(foreign, input), /没有这项/)
+  assert.equal(f.handles.length, 1)
+  await f.handoffs.close()
+})
+
+test('failed acceptance persistence remains pending in the UI and reuses its original review timestamp', async () => {
+  let fail = false
+  const f = fixture({failSave: task => fail && task.acceptance === 'accepted'})
+  const task = await completed(f)
+  fail = true
+  const input = {taskId:task.id, requestId:'accept-delayed',notes:'Verified'}
+  await assert.rejects(f.handoffs.accept(f.owner,input), /storage unavailable/)
+  const pending = (await f.handoffs.list(f.owner)).tasks[0]
+  assert.equal(pending.acceptance,'pending'); assert.equal(pending.savePending,true)
+  assert.equal(f.handoffs.observation(f.owner)[0].acceptance,'pending')
+  assert.equal(f.records.get(task.id).acceptance,'pending')
+  const stamp = f.handoffs.states.get(f.owner).reviewCandidates.get(task.id).reviewedAt
+  assert.equal((await f.handoffs.rework(f.owner,{taskId:task.id,requestId:'wrong-race',issues:'retry'})).rejected,true)
+  assert.equal((await f.handoffs.accept(f.owner,{...input,requestId:'another'})).rejected,true)
+  fail = false
+  const saved = await f.handoffs.accept(f.owner,input)
+  assert.equal(saved.acceptance,'accepted'); assert.equal(saved.reviewedAt,stamp)
+  assert.equal(saved.savePending,undefined); assert.equal(f.handles.length,1)
+  await f.handoffs.close()
+})
+
+test('closed-source rework carries bounded untrusted prior results and makes one linked task per request', async () => {
+  const f=fixture(), original=await f.start({prompt:'Original goal',criteria:'Original criteria',excerpt:'DO_NOT_RESHARE',returnToConversation:true})
+  await tick(); f.handles[0].finish(piResult('UNTRUSTED_RESULT_START'+ 'x'.repeat(14000)+'UNTRUSTED_RESULT_END'))
+  const parent=await settle(f,original); f.sources.delete('source')
+  const input={taskId:parent.id,requestId:'rework-1',issues:'Fix the missing boundary check',targetLauncher:'pi'}
+  const [child,replay]=await Promise.all([f.handoffs.rework(f.owner,input),f.handoffs.rework(f.owner,input)])
+  assert.equal(child.id,replay.id); assert.equal(child.parentTaskId,parent.id); assert.equal(child.acceptance,'pending')
+  assert.equal(child.prompt,'Original goal'); assert.equal(child.criteria,'Original criteria')
+  assert.ok(child.previousResult.length<=8000); assert.match(child.previousResult,/中间部分已省略/)
+  assert.equal(f.records.get(parent.id).reworkTaskId,child.id); assert.equal(f.records.get(parent.id).acceptance,'rework')
+  await tick(); assert.equal(f.handles.length,2)
+  const prompt=f.handles[1].spec.stdio.stdin.data
+  assert.match(prompt,/不可信资料/); assert.match(prompt,/Fix the missing boundary check/)
+  assert.match(prompt,/UNTRUSTED_RESULT_START/); assert.match(prompt,/UNTRUSTED_RESULT_END/)
+  assert.doesNotMatch(prompt,/DO_NOT_RESHARE/)
+  assert.equal((await f.handoffs.rework(f.owner,{...input,issues:'Different request content'})).rejected,true)
+  assert.equal((await f.handoffs.rework(f.owner,{...input,requestId:'duplicate-child'})).rejected,true)
+  const foreign={id:'other',session:{events:[]}}; f.agents.set(foreign.id,foreign)
+  await assert.rejects(f.handoffs.rework(foreign,input),/没有这项/)
+  f.handles[1].finish(piResult('Fixed result')); const returned=await settle(f,child)
+  assert.equal(returned.acceptance,'pending'); assert.equal(returned.delivery,'queued')
+  await f.handoffs.accept(f.owner,{taskId:child.id,requestId:'accept-child',notes:'Checked fixed boundary'})
+  const observation=f.handoffs.observation(f.owner)
+  assert.equal(observation.find(row=>row.id===child.id).parentTaskId,parent.id)
+  assert.equal(observation.find(row=>row.id===child.id).acceptance,'accepted')
+  assert.doesNotMatch(JSON.stringify(observation),/UNTRUSTED_RESULT|Fixed result|DO_NOT_RESHARE/)
+  assert.equal(f.deliveries.length,2)
+  await f.handoffs.close()
+})
+
+test('rework validates explicit issues and settled state before allocating another execution', async () => {
+  const f=fixture(), task=await f.start()
+  const input={taskId:task.id,requestId:'review-1',issues:'Specific issue'}
+  assert.equal((await f.handoffs.rework(f.owner,input)).rejected,true)
+  assert.equal((await f.handoffs.accept(f.owner,{taskId:task.id,requestId:'accept-running'})).rejected,true)
+  await tick(); f.handles[0].finish(piResult('Result')); await settle(f,task)
+  for(const issues of ['', '   ', 'x'.repeat(4001)]) assert.equal((await f.handoffs.rework(f.owner,{...input,issues})).rejected,true)
+  f.policy.mode='unknown'
+  assert.equal((await f.handoffs.rework(f.owner,input)).rejected,true)
+  assert.equal(f.handles.length,1)
+  await f.handoffs.close()
+})
+
+test('partial rework persistence cannot spawn twice across retries or a restored owner state', async () => {
+  let fail=false
+  const f=fixture({failSave:task=>fail && task.acceptance==='rework'})
+  const parent=await completed(f); fail=true
+  const input={taskId:parent.id,requestId:'rework-save',issues:'Correct the issue'}
+  await assert.rejects(f.handoffs.rework(f.owner,input),/storage unavailable/)
+  await tick(); assert.equal(f.handles.length,1)
+  fail=false
+  const rows=(await f.handoffs.list(f.owner)).tasks
+  const child=rows.find(row=>row.parentTaskId===parent.id)
+  assert.equal(child.status,'failed')
+  assert.equal((await f.handoffs.rework(f.owner,input)).id,child.id)
+  await f.handoffs.disposeOwner(f.owner)
+  assert.equal((await f.handoffs.rework(f.owner,input)).id,child.id)
+  assert.equal(f.handles.length,1)
+  await f.handoffs.close()
+})
+
+test('cancelling a rework keeps its lineage and retry identity without accepting its parent', async () => {
+  const f=fixture(),parent=await completed(f)
+  const input={taskId:parent.id,requestId:'rework-cancel',issues:'Recheck'}
+  const child=await f.handoffs.rework(f.owner,input); await tick()
+  await f.handoffs.cancel(f.owner,{taskId:child.id})
+  assert.equal((await f.handoffs.rework(f.owner,input)).status,'cancelled')
+  assert.equal(f.records.get(parent.id).acceptance,'rework')
+  assert.equal(f.records.get(child.id).parentTaskId,parent.id)
+  assert.equal(f.handles.length,2)
+  await f.handoffs.close()
+})
+
+test('acceptance and result return cannot overwrite each other while their durability writes are pending', async () => {
+  const f=fixture(), task=await completed(f), gate=Promise.withResolvers()
+  f.handoffs.deliver=async()=>{await gate.promise;return {status:'queued',messageId:'one'}}
+  const returning=f.handoffs.returnResult(f.owner,{taskId:task.id}); await tick()
+  assert.equal((await f.handoffs.accept(f.owner,{taskId:task.id,requestId:'accept-after-return'})).rejected,true)
+  gate.resolve(); await returning
+  const saved=await f.handoffs.accept(f.owner,{taskId:task.id,requestId:'accept-after-return'})
+  assert.equal(saved.delivery,'queued'); assert.equal(f.records.get(task.id).acceptance,'accepted')
+  await f.handoffs.close()
+  const g=fixture(), second=await completed(g), writeGate=Promise.withResolvers(), put=g.handoffs.journal.put
+  g.handoffs.journal.put=async(owner,row)=>{if(row.acceptance==='accepted') await writeGate.promise;return put(owner,row)}
+  const accepting=g.handoffs.accept(g.owner,{taskId:second.id,requestId:'accept-first'}); await tick()
+  await assert.rejects(g.handoffs.returnResult(g.owner,{taskId:second.id}),/验收记录正在确认/)
+  writeGate.resolve(); await accepting
+  await g.handoffs.returnResult(g.owner,{taskId:second.id})
+  assert.equal(g.records.get(second.id).delivery,'queued'); assert.equal(g.records.get(second.id).acceptance,'accepted')
+  await g.handoffs.close()
+})
 
 test('real background handoff preserves source, uses confined stdin, returns final result to the captured owner once', async () => {
   const f = fixture()
@@ -63,7 +201,7 @@ test('real background handoff preserves source, uses confined stdin, returns fin
   assert.equal(JSON.stringify(f.persisted).includes('PRIVATE_TOOL_OUTPUT'), false)
   const observation = f.handoffs.observation(f.owner)
   assert.deepEqual(observation, [{ id: task.id, sourceTerminalId: 'source', sourceLauncher: 'codex', targetLauncher: 'pi',
-    status: 'succeeded', delivery: 'queued', goal: 'Review the change', criteria: 'Explain the check' }])
+    status: 'succeeded', delivery: 'queued', goal: 'Review the change', criteria: 'Explain the check', acceptance: 'pending' }])
   assert.equal(JSON.stringify(observation).includes('EXPLICIT_EXCERPT'), false)
   assert.equal(JSON.stringify(observation).includes('Review returned'), false)
   await f.handoffs.returnResult(f.owner, { taskId: task.id })

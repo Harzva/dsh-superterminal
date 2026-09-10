@@ -11,7 +11,12 @@ export const requests = {
   handoffList: z.object({}).strict(),
   handoffCancel: z.object({ taskId: boundedId }).strict(),
   handoffReturn: z.object({ taskId: boundedId }).strict(),
+  handoffAccept: z.object({ taskId: boundedId, requestId: boundedId, notes: z.string().trim().max(2000).optional() }).strict(),
+  handoffRework: z.object({ taskId: boundedId, requestId: boundedId, issues: z.string().trim().min(1).max(4000),
+    targetLauncher: z.enum(['pi', 'piagent', 'codex']).optional(), returnToConversation: z.boolean().optional() }).strict(),
   inventory: z.object({}).strict(),
+  agentCheck: z.object({ launcher: z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/) }).strict(),
+  commands: z.object({ terminalId: boundedId, lastN: z.number().int().min(1).max(50).optional() }).strict(),
   independent: z.object({ sessionId: boundedId.optional() }).strict(),
   suggest: z.object({ prompt: z.string().trim().min(1).max(4000), terminalId: boundedId.optional(), excerpt: z.string().trim().max(8000).optional() }).strict()
     .refine(value => !value.excerpt || !!value.terminalId, { message: '分享输出前请先选择终端', path: ['terminalId'] }),
