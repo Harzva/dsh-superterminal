@@ -1,4 +1,8 @@
-export interface AgentRecord { id: string; label: string; available: boolean; executable: string | null; version: string | null; configuration: string; account: string; subscription: string; readiness: string }
+export interface ReadinessPoint { state: string; label: string; detail: string; checkedAt: number | null }
+export interface AgentHealth { installation: ReadinessPoint; authentication: ReadinessPoint; connection: ReadinessPoint; quota: ReadinessPoint; canCheckLogin: boolean }
+export interface AgentRecord { id: string; label: string; available: boolean; executable: string | null; version: string | null; configuration: string; account: string; subscription: string; readiness: string; health?: AgentHealth }
+export interface CommandRecord { id: string; command: string; commandTruncated: boolean; output: string; outputTruncated: boolean; startedAt: number; finishedAt: number | null; durationMs: number | null; exitCode: number | null; status: 'running' | 'succeeded' | 'failed' | 'interrupted' }
+export interface CommandSnapshot { terminalId: string; status: 'starting' | 'ready' | 'unavailable' | 'ended'; reason?: string; records: CommandRecord[]; truncated: boolean }
 export interface TerminalSummary {
   id: string;
   launcher: string;
@@ -34,6 +38,16 @@ export interface HandoffTask {
   createdAt: number;
   updatedAt: number;
   exitCode?: number | null;
+  acceptance?: 'pending' | 'accepted' | 'rework';
+  reviewedAt?: number;
+  executionFinishedAt?: number;
+  reviewNotes?: string;
+  reviewRequestId?: string;
+  parentTaskId?: string;
+  reworkTaskId?: string;
+  reworkIssues?: string;
+  previousResult?: string;
+  savePending?: boolean;
 }
 export interface HandoffInput {
   requestId: string;
@@ -44,13 +58,19 @@ export interface HandoffInput {
   criteria?: string;
   returnToConversation?: boolean;
 }
+export interface HandoffAcceptInput { taskId: string; requestId: string; notes?: string }
+export interface HandoffReworkInput { taskId: string; requestId: string; issues: string; targetLauncher?: string; returnToConversation?: boolean }
 
 export interface TerminalBridge {
   handoffList(): Promise<{tasks: HandoffTask[]; targets: HandoffTarget[]}>;
   handoffStart(input: HandoffInput): Promise<HandoffTask | {rejected: true; message: string}>;
   handoffCancel(input: {taskId: string}): Promise<HandoffTask>;
   handoffReturn(input: {taskId: string}): Promise<HandoffTask>;
+  handoffAccept(input: HandoffAcceptInput): Promise<HandoffTask | {rejected: true; message: string}>;
+  handoffRework(input: HandoffReworkInput): Promise<HandoffTask | {rejected: true; message: string}>;
   inventory(): Promise<{agents: AgentRecord[]; checkedAt:string}>;
+  agentCheck(input: {launcher: string}): Promise<{supported: boolean; authentication?: ReadinessPoint}>;
+  commands(input: {terminalId: string; lastN?: number}): Promise<CommandSnapshot>;
   suggest(input:{prompt:string;terminalId?:string;excerpt?:string}): Promise<{text:string;model:string;terminalId?:string|null}>;
   list(): Promise<{ terminals: TerminalSummary[]; launchers: TerminalLauncher[]; cwd: string }>;
   open(input: { launcher: string; rows: number; cols: number; requestId: string }): Promise<TerminalSummary>;

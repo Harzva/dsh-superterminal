@@ -54,7 +54,8 @@ export function SupervisorPanel({ sessionId, tasks = [], onOpenHandoffs }: { ses
       <button className="dt-toolbar-button" disabled={busy} onClick={() => setRound(value => value + 1)}>{busy ? '读取中…' : '生成一次建议'}</button></div>
     <p role="status">{error || state.suggestError || state.suggestion || (busy ? '正在读取监督状态…' : '尚无建议。点击生成时会使用 DSH 已配置的模型。')}</p>
     {tasks.length > 0 && <section className="dt-supervisor-handoffs" aria-label="Supervisor 协作关系"><strong>谁在帮助谁</strong>
-      {[...tasks].sort((a,b) => b.createdAt-a.createdAt).slice(0,4).map(task => <button key={task.id} onClick={onOpenHandoffs}><span>{task.sourceLauncher} → {task.targetLauncher}</span><span>{handoffStatus(task)}</span></button>)}</section>}
+      {[...tasks].sort((a,b) => b.createdAt-a.createdAt).slice(0,4).map(task => <button key={task.id} onClick={onOpenHandoffs}>
+        <span>{task.parentTaskId ? '↳ 返工 · ' : ''}{task.sourceLauncher} → {task.targetLauncher}</span><span>{handoffStatus(task)}</span></button>)}</section>}
     <small>根据任务目标、运行状态与协作关系提供建议。Agent 返回结果后，仍需结合目标验收。</small>
   </aside>;
 }

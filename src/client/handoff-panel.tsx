@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentIcon } from './agent-icon';
-import type { HandoffInput, HandoffTarget, HandoffTask, TerminalBridge, TerminalSummary } from './types';
+import type { HandoffAcceptInput, HandoffInput, HandoffReworkInput, HandoffTarget, HandoffTask, TerminalBridge, TerminalSummary } from './types';
 
-export const handoffStatus = (task: HandoffTask) => ({ queued: '准备中', running: '执行中', succeeded: '已返回 · 待验收',
+export const handoffStatus = (task: HandoffTask) => task.savePending ? '记录待确认保存' : task.acceptance === 'accepted' ? '已验收'
+  : task.acceptance === 'rework' ? '已安排返工' : ({ queued: '准备中', running: '执行中', succeeded: '已返回 · 待验收',
   failed: '执行失败', cancelled: '已取消', interrupted: '运行中断' }[task.status] || '状态待确认');
 const working = (task: HandoffTask) => task.status === 'running' || task.status === 'queued';
 const names: Record<string, string> = { codex: 'Codex', pi: 'Pi Agent', piagent: 'Pi Agent', shell: 'Shell',
@@ -45,16 +46,92 @@ export function useHandoffs(bridge: TerminalBridge, active: boolean) {
 }
 
 type Source = Pick<TerminalSummary, 'id' | 'launcher'> & { title?: string };
+export type HandoffSeed = {id: string; sessionId: string; sourceTerminalId: string; prompt: string; excerpt: string};
 type Props = {
   bridge: TerminalBridge; sessionId: string; conversationTitle: string; source?: Source;
   excerpt?: {terminalId: string; text: string}; tasks: HandoffTask[]; targets: HandoffTarget[];
   error: string; loaded: boolean; opened: boolean; onClose(): void; refresh(): Promise<void>;
   openAt: { section: 'form' | 'records'; request: number };
   availableTerminalIds: string[]; onShowTerminal(id: string): boolean; onShowConversation?(): void;
+  seed?: HandoffSeed;
 };
 type Draft = { target: string; prompt: string; criteria: string; share: boolean; returnToConversation: boolean };
 type PendingSubmission = { input: HandoffInput; source: Source; draft: Draft; conversationTitle: string };
 const blankDraft = (): Draft => ({target: '', prompt: '', criteria: '', share: false, returnToConversation: true});
+
+function HandoffReview({task, bridge, targets, expanded, blocked, refresh, reveal}: {
+  task: HandoffTask; bridge: TerminalBridge; expanded: boolean; blocked: boolean;
+  targets: HandoffTarget[];
+  refresh(): Promise<void>; reveal(id: string): void;
+}) {
+  const [mode, setMode] = useState<'accept' | 'rework'>();
+  const [text, setText] = useState('');
+  const [target, setTarget] = useState(task.targetLauncher);
+  const [pending, setPending] = useState<{kind:'accept'; input:HandoffAcceptInput} | {kind:'rework'; input:HandoffReworkInput}>();
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const alive = useRef(true), flight = useRef(false);
+  const context = useRef({task, bridge, refresh}); context.current = {task, bridge, refresh};
+  useEffect(() => { alive.current = true; return () => {alive.current = false;}; }, []);
+  useEffect(() => {
+    if (!pending) return;
+    if (task.reviewRequestId === pending.input.requestId || (pending.kind === 'rework' && task.reworkTaskId)) {
+      setPending(undefined); setMode(undefined); setText('');
+      setNotice('已核对到这次操作的记录。');
+    }
+  }, [task.reviewRequestId, task.reworkTaskId, pending]);
+  const submit = async () => {
+    if (flight.current || blocked || !mode || (mode === 'rework' && (!text.trim() || (!pending && !targets.find(item => item.id === target)?.available)))) return;
+    const request = pending ?? (mode === 'accept'
+      ? {kind:'accept' as const, input:{taskId:task.id, requestId:crypto.randomUUID(), notes:text.trim() || undefined}}
+      : {kind:'rework' as const, input:{taskId:task.id, requestId:crypto.randomUUID(), issues:text.trim(), targetLauncher:target}});
+    const owner = bridge;
+    setPending(request); setBusy(true); setNotice(''); flight.current = true;
+    try {
+      const response = request.kind === 'accept' ? await owner.handoffAccept(request.input) : await owner.handoffRework(request.input);
+      if (!alive.current || context.current.bridge !== owner) return;
+      if ('rejected' in response) { setPending(undefined); setNotice(response.message); return; }
+      setPending(undefined); setMode(undefined); setText('');
+      setNotice(request.kind === 'accept' ? '验收记录已保存。' : '返工已建立，原目标、完成判据和结果已随任务保留。');
+      if (request.kind === 'rework') reveal(response.id);
+    } catch {
+      if (alive.current && context.current.bridge === owner) setNotice('操作尚未确认。请核对记录；再次确认将使用同一请求。');
+    } finally {
+      flight.current = false;
+      if (alive.current && context.current.bridge === owner) {setBusy(false); await context.current.refresh();}
+    }
+  };
+  if (!expanded) return null;
+  if (task.acceptance === 'accepted' || task.acceptance === 'rework') return <section className="dt-handoff-review-record" aria-label="成果验收记录">
+    <strong>{task.acceptance === 'accepted' ? '验收记录' : '返工记录'}</strong>
+    {task.reviewedAt && <time dateTime={new Date(task.reviewedAt).toISOString()}>{new Date(task.reviewedAt).toLocaleString()}</time>}
+    {task.reviewNotes && <p>{task.reviewNotes}</p>}
+    {task.reworkTaskId && <button type="button" onClick={() => reveal(task.reworkTaskId!)}>查看后续返工 ↗</button>}
+    {task.savePending && <p role="status">记录仍待确认保存。</p>}
+  </section>;
+  if (working(task)) return null;
+  return <section className="dt-handoff-review" aria-label="验收或返工">
+    {!mode ? <div className="dt-handoff-review-choices">
+      {task.status === 'succeeded' && <button type="button" disabled={blocked || task.savePending} onClick={() => {setMode('accept');setText('');setNotice('');}}>验收成果</button>}
+      <button type="button" disabled={blocked || task.savePending} onClick={() => {setMode('rework');setText('');setNotice('');}}>提出问题并返工</button>
+    </div> : <form onSubmit={event => {event.preventDefault();void submit();}}>
+      <strong>{mode === 'accept' ? '确认成果符合目标与完成判据' : '哪些问题需要修改？'}</strong>
+      <p>{mode === 'accept' ? '验收由你确认，Agent 的正常返回不会代替这一步。' : '会创建一项关联任务，附上原目标、完成判据和上次结果摘要；来源终端关闭也可以继续。'}</p>
+      <label className="dt-handoff-label">{mode === 'accept' ? '验收备注（选填）' : '需要修改的问题'}
+        <textarea aria-label={mode === 'accept' ? '验收备注' : '返工问题'} rows={3} maxLength={mode === 'accept' ? 2000 : 4000}
+          required={mode === 'rework'} disabled={!!pending || busy} value={text} onChange={event => setText(event.target.value)}/>
+      </label>
+      {mode === 'rework' && <label className="dt-handoff-label">交给谁继续<select aria-label="返工执行者" value={target} disabled={!!pending || busy} onChange={event => setTarget(event.target.value)}>
+        {targets.filter(item => ['pi','piagent','codex'].includes(item.id)).map(item => <option key={item.id} value={item.id} disabled={!item.available}>
+          {item.label}{item.available ? '' : ' · 暂不可用'}</option>)}
+      </select></label>}
+      <div className="dt-handoff-review-choices"><button type="submit" disabled={busy || blocked || (mode === 'rework' && (!text.trim() || (!pending && !targets.find(item => item.id === target)?.available)))}>
+        {busy ? '正在确认…' : pending ? '核对这次提交' : mode === 'accept' ? '确认验收' : '建立返工任务'}</button>
+        {!pending && <button type="button" disabled={busy} onClick={() => {setMode(undefined);setText('');}}>暂不处理</button>}</div>
+    </form>}
+    {notice && <p className="dt-handoff-review-notice" role="status">{notice}</p>}
+  </section>;
+}
 
 function Route({ source, target }: {source: string; target: string}) {
   return <div className="dt-handoff-route"><span><AgentIcon launcher={source}/>{agentName(source)}</span>
@@ -108,6 +185,8 @@ function HandoffResult({text}: {text: string}) {
 
 export function HandoffPanel(props: Props) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [seedShares, setSeedShares] = useState<Record<string, string>>({});
+  const seenSeeds = useRef(new Set<string>());
   const [selection, setSelection] = useState<string>();
   const [pending, setPending] = useState<PendingSubmission>();
   const [busy, setBusy] = useState('');
@@ -125,6 +204,15 @@ export function HandoffPanel(props: Props) {
   useEffect(() => {
     if (props.opened && !pending) { setSelection(props.source?.id); setNotice(''); }
   }, [props.opened, props.openAt]);
+  useEffect(() => {
+    const seed = props.seed;
+    if (!props.opened || pending || !seed || seed.sessionId !== props.sessionId || seed.sourceTerminalId !== props.source?.id) return;
+    const key = `${seed.sessionId}/${seed.id}`;
+    if (seenSeeds.current.has(key)) return;
+    seenSeeds.current.add(key); setSelection(seed.sourceTerminalId);
+    setDrafts(previous => ({...previous, [seed.sourceTerminalId]: {...(previous[seed.sourceTerminalId] ?? blankDraft()), prompt: seed.prompt.slice(0,4000), share: !!seed.excerpt}}));
+    setSeedShares(previous => ({...previous, [seed.sourceTerminalId]: seed.excerpt.slice(0,8000)}));
+  }, [props.opened, props.seed, props.source?.id, props.sessionId, pending]);
   const scrollTo = useCallback((element?: HTMLElement | null) => {
     const viewport = scrollRef.current;
     if (!viewport) return;
@@ -158,7 +246,7 @@ export function HandoffPanel(props: Props) {
     || props.targets.find(item => item.available)?.id || '';
   const selectedTarget = props.targets.find(item => item.id === target);
   const shared = pending ? pending.input.excerpt ?? ''
-    : props.excerpt && props.excerpt.terminalId === selection ? props.excerpt.text : '';
+    : props.excerpt && props.excerpt.terminalId === selection ? props.excerpt.text : seedShares[selection ?? ''] ?? '';
   const accepted = pending ? props.tasks.find(task => task.requestId === pending.input.requestId) : undefined;
   const conversationTitle = pending?.conversationTitle ?? props.conversationTitle;
   useEffect(() => {
@@ -255,6 +343,7 @@ export function HandoffPanel(props: Props) {
       <div className="dt-handoff-list">{ordered.map(task => <article key={task.id} className={`dt-handoff-card is-${task.status}`}
         ref={element => { if (element) cardsRef.current.set(task.id, element); else cardsRef.current.delete(task.id); }}>
         <Route source={task.sourceLauncher} target={task.targetLauncher}/>
+        {task.parentTaskId && <button className="dt-handoff-parent" type="button" onClick={() => {setDetails(task.parentTaskId);setRevealTaskId(task.parentTaskId);}}>↳ 返工自上一项任务 · 查看来源</button>}
         <p className="dt-handoff-task-title">{task.prompt}</p>
         <div className="dt-handoff-card-meta"><span className="dt-handoff-status"><i/>{handoffStatus(task)}</span>
           <time dateTime={new Date(task.createdAt).toISOString()}>{new Date(task.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</time></div>
@@ -268,9 +357,12 @@ export function HandoffPanel(props: Props) {
         {details === task.id && <div className="dt-handoff-result">
           <div><strong>任务目标</strong><p>{task.prompt}</p></div>
           {task.criteria && <div><strong>完成判据</strong><p>{task.criteria}</p></div>}
+          {task.reworkIssues && <div><strong>本次需要修改</strong><p>{task.reworkIssues}</p></div>}
           {task.error && <p className="dt-handoff-task-error">{task.error}</p>}
           {task.result ? <HandoffResult text={task.result}/> : <p>{working(task) ? 'Agent 正在执行，完成后会在这里显示结果。' : '这次执行没有返回结果。'}</p>}
         </div>}
+        <HandoffReview task={task} bridge={props.bridge} targets={props.targets} expanded={details === task.id} blocked={!!busy || !!props.error}
+          refresh={props.refresh} reveal={id => {setDetails(id);setRevealTaskId(id);}}/>
       </article>)}</div>
     </div>
   </section>;

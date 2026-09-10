@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { AgentIcon } from './agent-icon';
 import { FitAddon } from '@xterm/addon-fit';
+import { ShellCommandHistory } from './shell-command-history';
 import type { TerminalBridge, TerminalSummary } from './types';
 
 type Props = {
@@ -19,6 +20,9 @@ type Props = {
   onTitleChange?(title: string): void;
   onHide?(): void;
   onSelection?(text: string): void;
+  onSelectionAction?(action: 'explain' | 'fix' | 'handoff', text: string): void;
+  onReadStatus?(failed: boolean): void;
+  centralizedStatus?: boolean;
   onFocus(): void;
   onZoom(): void;
   onSplit(axis: 'x' | 'y'): void;
@@ -42,6 +46,7 @@ export function TerminalPane(props: Props) {
   const propsRef = useRef(props);
   propsRef.current = props;
   const hostRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const mountedRef = useRef(false);
@@ -78,6 +83,10 @@ export function TerminalPane(props: Props) {
   const [readError, setReadError] = useState('');
   const [controlError, setControlError] = useState('');
   const [size, setSize] = useState({ rows: props.terminal.rows, cols: props.terminal.cols });
+  const [selectionText, setSelectionText] = useState('');
+  const [selectionOpen, setSelectionOpen] = useState(false);
+  const [selectionPosition, setSelectionPosition] = useState({left: 8, top: 48});
+  useEffect(() => { propsRef.current.onReadStatus?.(Boolean(readError)); }, [Boolean(readError)]);
 
   const commitTitle = () => {
     const value = titleDraft.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 48);
@@ -100,7 +109,7 @@ export function TerminalPane(props: Props) {
   };
 
   const inputAllowed = useCallback(() => (
-    mountedRef.current && readyRef.current && readableRef.current && !gapRef.current &&
+    mountedRef.current && propsRef.current.connected && readyRef.current && readableRef.current && !gapRef.current &&
     leaseRef.current !== null && stateRef.current === 'running'
   ), []);
 
@@ -286,7 +295,10 @@ export function TerminalPane(props: Props) {
     const inputDisposable = term.onData(send);
     const bellDisposable = term.onBell(() => { if (!canceled) setBell(true); });
     const selectionDisposable = term.onSelectionChange(() => {
-      if (!canceled) propsRef.current.onSelection?.(term.getSelection().slice(0, 4000));
+      if (canceled) return;
+      const text = term.getSelection().slice(0, 4000);
+      setSelectionText(text); setSelectionOpen(Boolean(text));
+      propsRef.current.onSelection?.(text);
     });
     term.attachCustomKeyEventHandler(event => !(event.altKey && event.shiftKey && (
       event.key.startsWith('Arrow') || event.key === 'Enter'
@@ -371,7 +383,7 @@ export function TerminalPane(props: Props) {
     setState(props.terminal.state);
     setExitCode(props.terminal.exitCode);
     updateStdin();
-  }, [props.terminal.state, props.terminal.exitCode, updateStdin]);
+  }, [props.terminal.state, props.terminal.exitCode, props.connected, updateStdin]);
 
   useEffect(() => {
     if (leaseRef.current && props.terminal.writer && props.terminal.writer !== activeViewerRef.current) {
@@ -391,11 +403,16 @@ export function TerminalPane(props: Props) {
     scheduleResize();
   }, [fontSize, scheduleResize]);
 
-  const writable = owned && ready && !gap && !readError && state === 'running' && !closing && !claiming;
+  const writable = props.connected && owned && ready && !gap && !readError && state === 'running' && !closing && !claiming;
   const settled = state === 'exited' || state === 'error';
   return (
-    <section className={`dt-pane${props.focused ? ' is-focused' : ''}${bell ? ' has-bell' : ''}`}
+    <section ref={paneRef} className={`dt-pane${props.focused ? ' is-focused' : ''}${bell ? ' has-bell' : ''}`}
       aria-label={`终端 ${props.number} ${props.terminal.launcher}`} onPointerDown={props.onFocus}
+      onPointerUp={event => {
+        if (!terminalRef.current?.getSelection()) return;
+        const bounds = paneRef.current?.getBoundingClientRect();
+        if (bounds) setSelectionPosition({left: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - 290)), top: Math.max(46, Math.min(event.clientY - bounds.top + 8, bounds.height - 90))});
+      }}
       onFocusCapture={props.onFocus}>
       <header className="dt-pane-bar">
         <AgentIcon launcher={props.terminal.launcher} />
@@ -434,6 +451,15 @@ export function TerminalPane(props: Props) {
         </div>
       </div>}
       <div className="dt-terminal-scroll"><div className="dt-terminal-host" ref={hostRef} /></div>
+      {props.terminal.launcher === 'shell' && <ShellCommandHistory bridge={props.bridge} terminalId={props.terminal.id}
+        connected={props.connected && !readError} visible={props.visible} onExplain={text => props.onSelectionAction?.('explain', text)}/>}
+      {selectionOpen && selectionText && props.focused && props.onSelectionAction && <div className="dt-selection-actions" role="toolbar" aria-label="对选中的终端内容使用 AI" style={selectionPosition}
+        onPointerDown={event => event.preventDefault()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setSelectionOpen(false); }}>
+        <span>终端 {String(props.number).padStart(2, '0')} · 已选 {selectionText.length} 字符</span>
+        <div>{([['explain', '解释'], ['fix', '建议修复'], ['handoff', '交给 Agent']] as const).map(([action, label]) => <button key={action} onClick={() => {
+          props.onSelectionAction?.(action, selectionText); setSelectionOpen(false);
+        }}>{label}</button>)}<button aria-label="收起选区操作" onClick={() => setSelectionOpen(false)}>×</button></div>
+      </div>}
       {props.draft && <div className="dt-pane-draft">
         <div className="dt-pane-draft-actions"><strong>待发送草稿</strong>
           <button onClick={() => { void copyDraft(); }}>{draftCopy === 'copied' ? '已复制' : '复制草稿'}</button>
@@ -444,9 +470,9 @@ export function TerminalPane(props: Props) {
           ? '已复制。请检查终端当前输入位置后粘贴。' : '检查内容后，可复制到这个终端。'}</span>
       </div>}
       {gap && <div className="dt-pane-notice dt-danger" role="alert">输出缓冲已截断，无法准确恢复画面，输入已停用。接管后可关闭此终端，再新建。</div>}
-      {props.connected && !gap && readError && <div className="dt-pane-notice" role="status">输出读取失败：{readError}。暂停输入，正在重试读取…</div>}
+      {props.connected && !props.centralizedStatus && !gap && readError && <div className="dt-pane-notice" role="status">输出读取失败：{readError}。暂停输入，正在重试读取…</div>}
       {!gap && !readError && !ready && <div className="dt-pane-notice" role="status">正在读取真实终端输出…</div>}
-      {props.connected && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
+      {props.connected && !readError && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
       <footer className="dt-pane-footer">
         <span title={props.terminal.id}>{props.terminal.pid ? `PID ${props.terminal.pid}` : '等待进程'}</span>
         <span title="终端字符列数 × 行数">{size.cols} × {size.rows}</span>
@@ -460,7 +486,7 @@ export function TerminalPane(props: Props) {
         <button className="dt-scroll-bottom" onClick={() => terminalRef.current?.scrollToBottom()}
           title="回到最新输出" aria-label={`终端 ${props.number} 回到底部`}>↓</button>
         <span className="dt-pane-spacer" />
-        {settled ? <span>进程已结束</span> : owned && !controlError ? <span className="dt-writer">可输入</span> : <button
+        {settled ? <span>进程已结束</span> : !props.connected || readError ? <span>输入暂停</span> : owned && !controlError ? <span className="dt-writer">可输入</span> : <button
           className="dt-claim" disabled={claiming || closing || (state !== 'running' && state !== 'cleanup-error')} onClick={() => { void claim(); }}
           title="取得此终端的人工输入控制权">{claiming ? '接管中…' : controlError ? '重新接管' : '接管输入'}</button>}
         <button className="dt-interrupt" disabled={!writable} onClick={() => send('\u0003')} title="向此终端发送 Ctrl-C">Ctrl-C</button>

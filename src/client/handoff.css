@@ -78,6 +78,16 @@
 .dsh-terminal-workspace .dt-handoff-expand-result { display:flex; width:100%; justify-content:space-between; padding:8px 2px 12px; color:#a7c9b3; font-size:11px; }
 .dsh-terminal-workspace .dt-handoff-result small { color:#708e7a; font-size:10px; line-height:1.7; }
 .dsh-terminal-workspace .dt-handoff-result .dt-handoff-task-error { color:#d6b392; }
+.dsh-terminal-workspace .dt-handoff-parent { padding:7px 0 0; color:#9ab6a4; font-size:10px; text-align:left; }
+.dsh-terminal-workspace .dt-handoff-review,.dsh-terminal-workspace .dt-handoff-review-record { margin-top:18px; padding-top:16px; border-top:1px solid #314a3a; font-size:11px; }
+.dsh-terminal-workspace .dt-handoff-review strong,.dsh-terminal-workspace .dt-handoff-review-record strong { color:#c2dbc9; font-weight:600; }
+.dsh-terminal-workspace .dt-handoff-review p,.dsh-terminal-workspace .dt-handoff-review-record p { color:#8fa797; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
+.dsh-terminal-workspace .dt-handoff-review-record time { display:block; color:#759482; font-size:10px; margin-top:6px; }
+.dsh-terminal-workspace .dt-handoff-review-choices { display:flex; flex-wrap:wrap; gap:8px; }
+.dsh-terminal-workspace .dt-handoff-review-choices button,.dsh-terminal-workspace .dt-handoff-review-record button { padding:8px 11px; border:1px solid #45644f; border-radius:7px; color:#bdd7c7; font-size:11px; }
+.dsh-terminal-workspace .dt-handoff-review-choices button:first-child { background:#244430; border-color:#58775e; color:#d0e5d6; }
+.dsh-terminal-workspace .dt-handoff-review select { width:100%; background:#101b14; border:1px solid #38513f; border-radius:7px; color:#c2d7c9; padding:9px 10px; font:inherit; }
+.dsh-terminal-workspace .dt-handoff-review .dt-handoff-review-notice { color:#c6b28d; }
 .dsh-terminal-workspace .dt-handoff-no-source { border:1px solid #344a3c; padding:20px; border-radius:9px; color:#bfd1c4; }
 .dsh-terminal-workspace .dt-handoff-no-source p { color:#8ba493; font-size:11px; line-height:1.8; }
 .dsh-terminal-workspace .dt-handoff-no-source button { color:#aed6be; border-color:#3b5544; }
