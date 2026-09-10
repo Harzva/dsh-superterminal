@@ -4,31 +4,31 @@
 
 <h1 align="center">DSH SuperTerminal</h1>
 
-<p align="center"><strong>把目标说出来，让终端开始工作。</strong></p>
+<p align="center"><strong>用自然语言执行任务，让 Side Terminal 成为对话旁的工作台。</strong></p>
 
 <p align="center">在 DSH 对话旁执行 AI 任务，打开你熟悉的智能体 CLI，把工作台排成自己的样子。</p>
 
 <p align="center">
-  <a href="https://harzva.github.io/dsh-superterminal/">官网</a> ·
+  <a href="https://harzva.github.io/dsh-superterminal/">官网交互导览</a> ·
   <a href="#安装">安装</a> ·
   <a href="https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md">使用指南</a> ·
   <a href="https://github.com/Harzva/dsh-superterminal/releases">更新记录</a>
 </p>
 
-![用自然语言执行任务，查看文件检查、编辑与测试步骤](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/ai-task.jpg)
+![AI 修复购物车，Shell 并排展示测试结果与修改后的代码](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/workspace.jpg)
 
-以上及下方截图均为 **alpha.8 实际界面**，使用独立的示例项目。
+**实测用例：**在独立示例项目中修复购物车合计，`35 → 80`，相关 **2 项测试通过**。以上及下方截图均为 alpha.8 实际界面。
 
 ## 从一句话，到实际结果
 
 输入「检查这个项目，修复失败的测试」，DSH 会调用当前配置允许的工具，读取文件、修改代码、执行命令并展示结果。你可以继续追问、在执行中追加要求，或停止任务。
 
-每个终端有自己的上下文和草稿。模型、权限、工具步骤都能看见；选区由你决定是否附上，任务不会自动送回主对话。
+每个终端有自己的上下文和草稿。模型、权限、工具步骤都能看见；选区由你决定是否附上，任务不会自动送回主对话。工作台支持自由分屏，拖动调整大小、放大或收起，最多 12 个窗格。
 
-| 对话旁的 Side Terminal | 按你的习惯自由分屏 |
+| 看清每一步 AI 操作 | 放在对话旁的 Side Terminal |
 | --- | --- |
-| 绑定当前对话，或留在独立工作台。收起侧栏，任务继续。 | 拖动调整大小、拆分、放大或收起，最多 12 个窗格。 |
-| ![DSH 右侧的 Side Terminal](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/side-terminal.jpg) | ![可调整布局的多终端工作台](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/workspace.jpg) |
+| 查看工具步骤与返回结果，继续追问、追加要求或停止。 | 绑定当前对话，或留在独立工作台。收起侧栏，任务继续。 |
+| ![AI 任务中的文件检查、编辑与测试步骤](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/ai-task.jpg) | ![DSH 右侧的 Side Terminal](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/side-terminal.jpg) |
 
 ## 熟悉的智能体，在同一个工作台
 

@@ -11,11 +11,12 @@
   <meta property="og:description" content="说出目标，让终端去完成。Natural-language tasks, native terminals, right beside your conversation.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://harzva.github.io/dsh-superterminal/">
-  <meta property="og:image" content="https://harzva.github.io/dsh-superterminal/assets/screenshots/ai-task.jpg">
+  <meta property="og:image" content="https://harzva.github.io/dsh-superterminal/assets/screenshots/workspace.jpg">
   <link rel="canonical" href="https://harzva.github.io/dsh-superterminal/">
   <link rel="icon" type="image/svg+xml" href="./assets/logo.svg">
   <link rel="stylesheet" href="./style.css">
-  <script defer src="./app.js"></script>
+  <link rel="stylesheet" href="./showcase.css?v=showcase-2">
+  <script defer src="./app.js?v=showcase-2"></script>
 </head>
 <body>
   <a class="skip-link" href="#main" data-en="Skip to content">跳到正文</a>
@@ -34,25 +35,45 @@
 
   <main id="main">
     <section class="hero section-shell" aria-labelledby="hero-title">
-      <a class="release-pill" href="https://github.com/Harzva/dsh-superterminal/releases/tag/v0.1.0-alpha.8"><span class="release-dot" aria-hidden="true"></span><span>0.1.0-alpha.8</span><span class="pill-divider"></span><span data-en="Meet your AI terminal">认识你的 AI 终端</span><span aria-hidden="true">↗</span></a>
-      <h1 id="hero-title"><span data-en="Say what you need.">说出目标。</span><br><span class="hero-highlight" data-en="Let your terminal work.">让终端去完成。</span></h1>
-      <p class="hero-description" data-en="An AI terminal inside DSH. Describe a task, watch the real steps, and keep working right beside your conversation.">长在 DSH 里的 AI 终端。用一句话发起任务，看到真实执行步骤，在对话旁把事情做完。</p>
-      <div class="hero-actions">
-        <a class="button button-dark" href="#install"><span data-en="Get SuperTerminal">开始使用 SuperTerminal</span><span aria-hidden="true">↗</span></a>
-        <a class="button button-plain" href="https://github.com/Harzva/dsh-superterminal"><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.53 2.34 1.09 2.91.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.11-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.03A9.6 9.6 0 0 1 12 6.82c.85 0 1.71.12 2.51.34 1.91-1.3 2.75-1.03 2.75-1.03.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.33 4.69-4.56 4.94.36.31.68.92.68 1.85v2.76c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg><span>GitHub</span></a>
+      <div class="hero-copy">
+        <a class="release-pill" href="https://github.com/Harzva/dsh-superterminal/releases/tag/v0.1.0-alpha.8"><span class="release-dot" aria-hidden="true"></span><span>alpha.8</span><span class="pill-divider"></span><span data-en="Open source · Made for DSH">开源 · 为 DSH 而生</span><span aria-hidden="true">↗</span></a>
+        <h1 id="hero-title"><span data-en="Say it.">说出目标。</span><br><span class="hero-highlight" data-en="Get it done.">让终端去完成。</span></h1>
+        <p class="hero-description" data-en="Your conversation on one side. Real work on the other. Ask DSH to read files, edit code, and run commands—right in your terminal.">一边对话，一边把事情做完。用自然语言，让 DSH 读取文件、修改代码、执行命令。</p>
+        <div class="hero-actions"><a class="button button-dark" href="#install"><span data-en="Get SuperTerminal">开始使用</span><span aria-hidden="true">↗</span></a><a class="button button-plain" href="https://github.com/Harzva/dsh-superterminal">GitHub <span aria-hidden="true">↗</span></a></div>
+        <div class="compatibility"><span>macOS</span><span>Node.js 24+</span><span>DSH 0.1.1-rc.2</span></div>
+        <div class="hero-signature"><img src="./assets/logo.svg" width="40" height="40" alt=""><p><strong data-en="A little terminal. Real work.">小小终端，认真干活。</strong><span data-en="AI tasks. Native CLIs. Your workspace.">AI 任务、原生 CLI、你的工作区。</span></p></div>
       </div>
-      <div class="compatibility"><span>macOS</span><span>Node.js 24+</span><span>DSH 0.1.1-rc.2</span></div>
-      <figure class="product-figure hero-figure">
-        <button class="screenshot-button" type="button" data-screenshot aria-label="放大 AI 任务截图" data-aria-en="Enlarge the AI task screenshot">
-          <img src="./assets/screenshots/ai-task.jpg" width="1280" height="1000" alt="SuperTerminal 中的自然语言任务、真实执行步骤与结果" data-alt-en="A natural-language task, real execution steps, and results in SuperTerminal" fetchpriority="high">
-          <span class="image-expand" aria-hidden="true">⤢</span>
-        </button>
-        <figcaption><span><i aria-hidden="true"></i><span data-en="Actual alpha.8 interface · Example project">alpha.8 实际界面 · 示例项目</span></span><span class="caption-id">01 / DSH AI</span></figcaption>
-      </figure>
+      <div class="product-tour" id="product-tour">
+        <div class="tour-heading"><span data-en="TAKE A LOOK INSIDE">看看它如何工作</span><span class="tour-live-note" data-en="Actual product screenshots">真实产品截图</span></div>
+        <div class="tour-tabs" data-tour-tabs role="tablist" aria-label="产品截图导览" data-aria-en="Product screenshot tour">
+          <button type="button" role="tab" id="tour-tab-workspace" data-tour="workspace" aria-controls="tour-panel-workspace" aria-selected="true" tabindex="0"><span data-en="Workspace">自由分屏</span></button>
+          <button type="button" role="tab" id="tour-tab-ai" data-tour="ai" aria-controls="tour-panel-ai" aria-selected="false" tabindex="-1"><span data-en="AI tasks">AI 任务</span></button>
+          <button type="button" role="tab" id="tour-tab-side" data-tour="side" aria-controls="tour-panel-side" aria-selected="false" tabindex="-1"><span data-en="Side Terminal">Side Terminal</span></button>
+          <button type="button" role="tab" id="tour-tab-agents" data-tour="agents" aria-controls="tour-panel-agents" aria-selected="false" tabindex="-1"><span data-en="Agents">智能体目录</span></button>
+        </div>
+        <div class="tour-panel" role="tabpanel" id="tour-panel-workspace" data-tour-panel aria-labelledby="tour-tab-workspace" tabindex="0">
+          <figure class="product-figure hero-figure"><button class="screenshot-button" type="button" data-screenshot aria-label="查看自由分屏完整截图" data-aria-en="View the full workspace screenshot"><img src="./assets/screenshots/workspace.jpg" width="1280" height="1000" alt="AI 与 Shell，一起展开。修复、测试、检查代码，在同一片工作区里完成。" data-alt-en="AI and Shell, side by side. Repair, test, and inspect code in one workspace." fetchpriority="high"><span class="image-expand" aria-hidden="true">⤢</span></button><figcaption><strong data-en="AI and Shell, side by side.">AI 与 Shell，一起展开。</strong><span data-en="Repair, test, and inspect code in one workspace.">修复、测试、检查代码，在同一片工作区里完成。</span></figcaption></figure>
+        </div>
+        <div class="tour-panel" role="tabpanel" id="tour-panel-ai" data-tour-panel aria-labelledby="tour-tab-ai" tabindex="0" hidden>
+          <figure class="product-figure hero-figure"><button class="screenshot-button" type="button" data-screenshot aria-label="查看AI 任务完整截图" data-aria-en="View the full ai tasks screenshot"><img src="./assets/screenshots/ai-task.jpg" width="1280" height="1000" alt="把任务说出来。自然语言发起任务，查看 DSH 的真实工具步骤。" data-alt-en="Start with your goal. Describe a task and follow the actual DSH tool steps." loading="lazy"><span class="image-expand" aria-hidden="true">⤢</span></button><figcaption><strong data-en="Start with your goal.">把任务说出来。</strong><span data-en="Describe a task and follow the actual DSH tool steps.">自然语言发起任务，查看 DSH 的真实工具步骤。</span></figcaption></figure>
+        </div>
+        <div class="tour-panel" role="tabpanel" id="tour-panel-side" data-tour-panel aria-labelledby="tour-tab-side" tabindex="0" hidden>
+          <figure class="product-figure hero-figure"><button class="screenshot-button" type="button" data-screenshot aria-label="查看Side Terminal完整截图" data-aria-en="View the full side terminal screenshot"><img src="./assets/screenshots/side-terminal.jpg" width="1280" height="1000" alt="和当前对话，刚好并肩。绑定当前对话，或使用独立的终端工作区。" data-alt-en="Right beside your conversation. Bind to a conversation, or use an independent workspace." loading="lazy"><span class="image-expand" aria-hidden="true">⤢</span></button><figcaption><strong data-en="Right beside your conversation.">和当前对话，刚好并肩。</strong><span data-en="Bind to a conversation, or use an independent workspace.">绑定当前对话，或使用独立的终端工作区。</span></figcaption></figure>
+        </div>
+        <div class="tour-panel" role="tabpanel" id="tour-panel-agents" data-tour-panel aria-labelledby="tour-tab-agents" tabindex="0" hidden>
+          <figure class="product-figure hero-figure"><button class="screenshot-button" type="button" data-screenshot aria-label="查看智能体目录完整截图" data-aria-en="View the full agents screenshot"><img src="./assets/screenshots/agents.jpg" width="1280" height="1000" alt="熟悉的搭档，随时就位。查看本机 CLI、版本，以及有据可查的使用状态。" data-alt-en="Your familiar agents, within reach. See local CLIs, versions, and available readiness evidence." loading="lazy"><span class="image-expand" aria-hidden="true">⤢</span></button><figcaption><strong data-en="Your familiar agents, within reach.">熟悉的搭档，随时就位。</strong><span data-en="See local CLIs, versions, and available readiness evidence.">查看本机 CLI、版本，以及有据可查的使用状态。</span></figcaption></figure>
+        </div>
+        <p class="tour-footnote"><span data-en="alpha.8 · Example project · Click to inspect">alpha.8 · 示例项目 · 点击查看细节</span><span aria-hidden="true">↗</span></p>
+      </div>
+    </section>
+    <section class="proof-strip section-shell" aria-label="示例任务结果" data-aria-en="Example task result">
+      <div><span class="proof-kicker" data-en="ONE REAL TASK">一次真实任务</span><p data-en="“Fix the cart total and run the tests.”">“修复购物车合计，并运行测试。”</p></div>
+      <div class="proof-result"><span class="proof-math"><s>35</s><span aria-hidden="true">→</span><strong>80</strong></span><span data-en="Quantity now included">正确计入商品数量</span></div>
+      <div class="proof-result"><strong class="proof-passed"><span aria-hidden="true">✓</span> 2 / 2</strong><span data-en="Tests passed in the example project">示例项目测试通过</span></div>
     </section>
 
     <section class="features section-shell" id="features" aria-labelledby="features-title">
-      <div class="section-heading"><p class="eyebrow" data-en="LESS SWITCHING. MORE DOING.">少一点切换，多一点完成。</p><h2 id="features-title"><span data-en="From a thought">从一个想法，</span><br><span data-en="to work that gets done.">到事情真的被完成。</span></h2><p data-en="Your terminal understands the goal and gives you a clear view of what happens next.">终端理解你的目标，也让每一步执行都有迹可循。</p></div>
+      <div class="section-heading"><p class="eyebrow" data-en="LESS SWITCHING. MORE DOING.">少一点切换，多一点完成。</p><h2 id="features-title"><span data-en="From a single request">从一句话，</span><br><span data-en="to a result you can see.">到真实的执行结果。</span></h2><p data-en="Your terminal understands the goal and gives you a clear view of what happens next.">终端理解你的目标，也让每一步执行都有迹可循。</p></div>
       <div class="feature-grid">
         <article class="feature-card"><span class="feature-symbol" aria-hidden="true">✦</span><span class="feature-index">01</span><h3 data-en="Start with your goal">用目标，开始工作</h3><p data-en="Ask DSH to inspect a project, edit a file, or run tests. It executes through the native runtime with your workspace permissions.">检查项目、修改文件、运行测试。用自然语言交给 DSH，按当前工作区权限执行。</p></article>
         <article class="feature-card"><span class="feature-symbol" aria-hidden="true">≋</span><span class="feature-index">02</span><h3 data-en="See the work unfold">看见执行的过程</h3><p data-en="Read the actual steps and their output. Expand details, read formatted results, and copy code when you need it.">查看实际步骤与输出，展开细节，阅读清晰的结果，随时复制需要的代码。</p></article>
@@ -69,7 +90,7 @@
 
     <section class="workspace-section section-shell" id="workspace" aria-labelledby="workspace-title">
       <div class="section-heading heading-split"><div><p class="eyebrow" data-en="A LITTLE SPACE. MANY POSSIBILITIES.">一片空间，许多可能。</p><h2 id="workspace-title"><span data-en="Your tools.">你的工具。</span><br><span data-en="Your way of working.">按你的方式排开。</span></h2></div><p data-en="Give each task its own pane. Resize, split, expand, and switch between AI tasks and the native terminal, without ending the terminal process.">给每个任务一个窗格。自由调整大小、分屏、放大，在 AI 任务与原生终端间切换，终端进程持续保留。</p></div>
-      <figure class="product-figure workspace-figure"><button class="screenshot-button" type="button" data-screenshot aria-label="放大多终端工作区截图" data-aria-en="Enlarge the multi-terminal workspace screenshot"><img src="./assets/screenshots/workspace.jpg" width="1280" height="1000" loading="lazy" alt="SuperTerminal 中可调整大小的多终端分屏工作区" data-alt-en="A resizable multi-pane terminal workspace in SuperTerminal"><span class="image-expand" aria-hidden="true">⤢</span></button><figcaption><span data-en="Split the space. Keep the flow.">空间可以分开，思路保持连贯。</span><span class="caption-id">03 / WORKSPACE</span></figcaption></figure>
+      <a class="workspace-tour-link" href="#product-tour"><span data-en="Back to the product screenshot tour">返回产品截图导览</span><span aria-hidden="true">↑</span></a>
       <div class="workspace-notes"><div><span class="note-number">01</span><p><strong data-en="Native CLI, familiar controls">原生 CLI，熟悉的操作</strong><span data-en="Use the terminal interfaces you already know.">继续使用你熟悉的终端界面。</span></p></div><div><span class="note-number">02</span><p><strong data-en="Context with a clear owner">上下文，有明确的归属</strong><span data-en="Share a selection explicitly with the current task.">选中内容，明确交给当前任务。</span></p></div><div><span class="note-number">03</span><p><strong data-en="Handoffs you can follow">交接，可以一路追踪</strong><span data-en="Send work to Pi or Codex, review it, and request rework.">交给 Pi 或 Codex，验收结果，继续返工。</span></p></div></div>
     </section>
 
@@ -98,6 +119,10 @@
 
   <footer class="site-footer section-shell"><a class="brand" href="#"><img src="./assets/logo.svg" width="34" height="34" alt=""><span><b>SuperTerminal</b><small data-en="A little terminal. Real work.">小小终端，认真干活。</small></span></a><div><a href="https://github.com/Harzva/dsh-superterminal">GitHub ↗</a><a href="https://github.com/Harzva/dsh-superterminal/issues" data-en="Feedback ↗">反馈建议 ↗</a><span>MIT · Made by Harzva</span></div></footer>
 
-  <dialog id="screenshot-dialog" aria-labelledby="screenshot-caption"><div class="lightbox-toolbar"><p id="screenshot-caption"></p><button id="close-screenshot" type="button" aria-label="关闭截图" data-aria-en="Close screenshot">×</button></div><div class="lightbox-scroll" tabindex="0"><img id="screenshot-full" alt=""></div></dialog>
+  <dialog id="screenshot-dialog" aria-labelledby="screenshot-caption">
+    <div class="lightbox-toolbar"><p id="screenshot-caption"></p><button id="close-screenshot" type="button" aria-label="关闭截图" data-aria-en="Close screenshot">×</button></div>
+    <div class="lightbox-scroll" tabindex="0"><img id="screenshot-full" alt=""></div>
+    <div class="lightbox-controls"><div><button id="previous-screenshot" type="button" aria-label="上一张截图" data-aria-en="Previous screenshot">←</button><span id="screenshot-position">1 / 4</span><button id="next-screenshot" type="button" aria-label="下一张截图" data-aria-en="Next screenshot">→</button></div><p id="screenshot-feedback" role="status" aria-live="polite"></p><button id="toggle-zoom" type="button" aria-pressed="false"><span data-zoom-label>原始大小</span><span aria-hidden="true">⤢</span></button></div>
+  </dialog>
 </body>
 </html>
