@@ -32,7 +32,7 @@ const packed = JSON.parse(execFileSync('tar', ['-xOf', artifact, 'package/packag
 assert.equal(packed.name, manifest.name)
 assert.equal(packed.version, manifest.version)
 const entries = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' }).trim().split('\n')
-for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
   assert.ok(entries.includes(`package/${file}`), `Release artifact must include ${file}`)
 }
 assert.ok(entries.every(path => path.startsWith('package/') && !path.split('/').includes('..')))
@@ -113,7 +113,7 @@ let logs = ''
 let sessionId
 const terminals = []
 const spawnedJobs = async () => { try { return (await readFile(join(workspace, 'protocol-spawns.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) } catch (error) { if (error.code === 'ENOENT') return []; throw error } }
-let handoffOwner, handoffInput, finishedHandoff, interruptedHandoff
+let handoffOwner, handoffInput, finishedHandoff, interruptedHandoff, reviewedHandoff
 let failure
 
 async function rpc(method, payload) {
@@ -205,6 +205,19 @@ try {
     await call('resize', { terminalId: entry.id, lease: entry.lease, rows: 37 + index, cols: 119 + index })
     await write(entry, 'stty size\r')
     await readUntil(entry, `\r\n${37 + index} ${119 + index}\r\n`)
+    if (index === 0) {
+      await until(async () => (await call('commands', {terminalId:entry.id})).records.some(record=>record.command==='stty size' && record.exitCode===0 && record.output.includes('37 119')), 'real command boundary and successful exit code')
+      await write(entry, "printf 'COMMAND_FAILURE_OUTPUT\\n'; false\r")
+      await until(async () => {
+        const records=(await call('commands',{terminalId:entry.id})).records
+        const failure=records.find(record=>record.command.includes('COMMAND_FAILURE_OUTPUT')&&record.status==='failed')
+        if(!failure)return false
+        assert.equal(failure.exitCode,1);assert.ok(failure.durationMs>=0)
+        assert.ok(failure.output.includes('COMMAND_FAILURE_OUTPUT'))
+        assert.ok(!failure.output.includes('harzva'));return true
+      }, 'real failed command retains output, duration and command exit code')
+      report.checks.actualShellCommandSuccessFailureAndTiming = true
+    }
   }
   assert.equal(new Set(terminals.map(entry => entry.pid)).size, 6)
   report.checks.actualUnpatchedPtyTermUnicodeAnsiResize = true
@@ -225,6 +238,7 @@ try {
   await readUntil(sidePty, '\r\nSIDE_TERMINAL_READY\r\n')
   await assert.rejects(call('read', { terminalId: sidePty.id, offset: 0 }), /没有这个终端/)
   await assert.rejects(callOwner(side.sessionId, 'read', { terminalId: terminals[0].id, offset: 0 }), /没有这个终端/)
+  await assert.rejects(callOwner(side.sessionId, 'commands', { terminalId: terminals[0].id }), /没有这个终端/)
   await assert.rejects(call('independent', { sessionId }), /原工作区/)
   const otherWorkspace = join(workspace, 'separate-workspace')
   await mkdir(otherWorkspace)
@@ -260,6 +274,24 @@ try {
   assert.equal(inserted.filter(message => message.id === delivered.messageId).length, 1)
   report.checks.packedProtocolSimulatorCompleteReturnAndDedupe = true
   report.checks.packedHandoffOwnerIsolation = true
+  const piHealth=(await handoffCall('inventory')).agents.find(agent=>agent.id==='pi').health
+  assert.equal(piHealth.connection.state,'last_succeeded')
+  assert.equal(piHealth.quota.state,'unknown')
+  assert.ok(piHealth.connection.checkedAt)
+  report.checks.agentReadinessUsesTimestampedExecutionEvidence = true
+  const reworkInput={taskId:finishedHandoff.id,requestId:randomUUID(),issues:'补上失败用例的说明；保留原任务与结果供核对。',returnToConversation:false}
+  reviewedHandoff=await handoffCall('handoffRework',reworkInput)
+  assert.ok(reviewedHandoff.id&&!reviewedHandoff.rejected)
+  assert.equal(reviewedHandoff.parentTaskId,finishedHandoff.id)
+  assert.equal((await handoffCall('handoffRework',reworkInput)).id,reviewedHandoff.id)
+  await until(async()=>(await handoffCall('handoffList')).tasks.some(task=>task.id===reviewedHandoff.id&&task.status==='succeeded'),'rework task completes')
+  const reviewInput={taskId:reviewedHandoff.id,requestId:randomUUID(),notes:'已核对返回内容与完成判据。'}
+  assert.equal((await handoffCall('handoffAccept',reviewInput)).acceptance,'accepted')
+  assert.equal((await handoffCall('handoffAccept',reviewInput)).acceptance,'accepted')
+  await assert.rejects(call('handoffAccept',reviewInput),/当前会话/)
+  assert.equal((await handoffCall('handoffRework',{...reworkInput,taskId:reviewedHandoff.id,requestId:randomUUID()})).rejected,true)
+  assert.equal((await spawnedJobs()).filter(job=>job.id===reviewedHandoff.id).length,1)
+  report.checks.packedExplicitAcceptanceAndReworkDedupe = true
   const failed = await handoffCall('handoffStart', { ...handoffInput, requestId: randomUUID(), prompt: 'offline:error' })
   await until(async () => (await handoffCall('handoffList')).tasks.some(task => task.id === failed.id && task.status === 'failed' && !!task.error), 'explicit protocol failure is recorded')
   const cancelled = await handoffCall('handoffStart', { ...handoffInput, requestId: randomUUID(), prompt: 'offline:wait' })
@@ -287,9 +319,13 @@ try {
   const records = (await callOwner(restored.sessionId, 'handoffList', {})).tasks
   assert.equal(records.find(task => task.id === finishedHandoff.id)?.delivery, 'queued')
   assert.equal(records.find(task => task.id === finishedHandoff.id)?.result, 'VERIFIED_NATIVE_HANDOFF')
+  assert.equal(records.find(task => task.id === finishedHandoff.id)?.acceptance,'rework')
+  assert.equal(records.find(task => task.id === reviewedHandoff.id)?.acceptance,'accepted')
+  assert.equal(records.find(task => task.id === reviewedHandoff.id)?.parentTaskId,finishedHandoff.id)
+  report.checks.packedAcceptanceSurvivesColdRestart = true
   assert.ok(['interrupted', 'cancelled'].includes(records.find(task => task.id === interruptedHandoff.id)?.status), 'unfinished task must remain stopped after graceful restart')
   assert.equal((await callOwner(restored.sessionId, 'handoffStart', handoffInput)).id, finishedHandoff.id)
-  assert.equal((await spawnedJobs()).length, 4, 'restore/retry must not start new processes')
+  assert.equal((await spawnedJobs()).length, 5, 'restore/retry must not start new processes')
   assert.ok((await spawnedJobs()).every(job => !alive(job.pid)))
   report.checks.packedHandoffColdRestoreNoRerun = true
   const restoredPty = await createPty(restored.sessionId)
@@ -304,7 +340,8 @@ try {
   report.checks.webArtifactServed = true
 } catch (error) {
   failure = error
-  report.failure = { name: error.name, message: error.code === 'ERR_ASSERTION' ? 'Verification assertion failed; terminal output omitted' : error.message }
+  report.failure = { name: error.name, message: error.code === 'ERR_ASSERTION' ? 'Verification assertion failed; terminal output omitted' : error.message,
+    location: error.stack?.split('\n').find(line=>line.includes('verify-dsh-offline.mjs:'))?.trim() }
 } finally {
   const errors = []
   if (server && server.exitCode === null) {
