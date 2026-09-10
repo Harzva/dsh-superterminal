@@ -188,18 +188,25 @@
     loading.src = item.source;
   }
 
-  screenshotButtons.forEach(button => {
+  function openScreenshot(button, returnFocus = button) {
+    const image = button.querySelector('img');
+    if (!image?.getAttribute('src')) return;
+    const source = new URL(image.getAttribute('src'), document.baseURI).href;
+    const index = galleryIndex.get(source);
+    if (index === undefined) return;
+    opener = returnFocus;
+    dialog.showModal();
+    document.body.classList.add('dialog-open');
+    showScreenshot(index, image);
+    document.querySelector('#close-screenshot').focus();
+  }
+  screenshotButtons.forEach(button => button.addEventListener('click', () => openScreenshot(button)));
+  document.querySelectorAll('[data-open-active-screenshot]').forEach(button => {
     button.addEventListener('click', () => {
-      const image = button.querySelector('img');
-      if (!image?.getAttribute('src')) return;
-      const source = new URL(image.getAttribute('src'), document.baseURI).href;
-      const index = galleryIndex.get(source);
-      if (index === undefined) return;
-      opener = button;
-      dialog.showModal();
-      document.body.classList.add('dialog-open');
-      showScreenshot(index, image);
-      document.querySelector('#close-screenshot').focus();
+      const tour = button.closest('.product-tour');
+      const panel = tour?.querySelector('[data-tour-panel]:not([hidden])');
+      const target = panel?.querySelector('[data-screenshot]');
+      if (target) openScreenshot(target, button);
     });
   });
   previousButton?.addEventListener('click', () => showScreenshot(screenshotIndex - 1));
