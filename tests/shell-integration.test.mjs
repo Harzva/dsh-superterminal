@@ -33,6 +33,27 @@ try {
   nodePty = require('node-pty')
 } catch {}
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+function ptyExitBarrier(pty) {
+  let exited = false
+  const exit = Promise.withResolvers()
+  const listener = pty.onExit(() => { exited = true; exit.resolve() })
+  const wait = async ms => {
+    let timer
+    try { return await Promise.race([exit.promise.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), ms) })]) }
+    finally { clearTimeout(timer) }
+  }
+  return async () => {
+    try {
+      // node-pty kill() only sends a signal. A shell may still write startup or
+      // history files until onExit; keep its temporary rc directory until then.
+      if (!exited) pty.kill()
+      if (!await wait(1000)) {
+        pty.kill('SIGKILL')
+        if (!await wait(5000)) throw new Error('Test PTY did not exit; temporary shell files were retained')
+      }
+    } finally { listener.dispose() }
+  }
+}
 for (const shell of ['zsh', 'bash']) test(`real ${shell} PTY records success/failure and duration while preserving user prompts`, { skip: !nodePty }, async () => {
   const home = await mkdtemp(join(tmpdir(), 'dsh-shell-pty-'))
   const original = "PS1='USER_PROMPT> '\nprintf 'USER_RC_LOADED\\n'\n"
@@ -40,6 +61,7 @@ for (const shell of ['zsh', 'bash']) test(`real ${shell} PTY records success/fai
   const integration = await prepareShellIntegration(`/bin/${shell}`, [], { environment: {} })
   const pty = nodePty.spawn(integration.argv[0], integration.argv.slice(1), { name: 'xterm-256color', cols: 80, rows: 24, cwd: home,
     env: { HOME: home, PATH: process.env.PATH, TERM: 'xterm-256color', ...integration.env } })
+  const stop = ptyExitBarrier(pty)
   let display = ''
   const listener = pty.onData(data => { display += integration.journal.feed(data) })
   const until = async predicate => { const end = Date.now() + 5000; while (!predicate()) { if (Date.now() > end) throw new Error('Shell protocol did not settle'); await delay(10) } }
@@ -56,7 +78,7 @@ for (const shell of ['zsh', 'bash']) test(`real ${shell} PTY records success/fai
     assert.equal(records[1].output, 'FAIL_OUTPUT\n'); assert.equal(records[1].exitCode, 1)
     assert.ok(display.includes('USER_PROMPT> ')); assert.equal(display.includes('dsh-command'), false)
     assert.equal(await readFile(join(home, shell === 'zsh' ? '.zshrc' : '.bashrc'), 'utf8'), original)
-  } finally { listener.dispose(); pty.kill(); await integration.dispose(); await rm(home, { recursive: true, force: true }) }
+  } finally { await stop(); listener.dispose(); await integration.dispose(); await rm(home, { recursive: true, force: true }) }
 })
 
 test('existing Bash DEBUG hooks are preserved by explicitly declining command integration', { skip: !nodePty }, async () => {
@@ -66,6 +88,7 @@ test('existing Bash DEBUG hooks are preserved by explicitly declining command in
   const integration = await prepareShellIntegration('/bin/bash', [], { environment: {} })
   const pty = nodePty.spawn(integration.argv[0], integration.argv.slice(1), { name: 'xterm-256color', cols: 80, rows: 24, cwd: home,
     env: { HOME: home, PATH: process.env.PATH, TERM: 'xterm-256color', ...integration.env } })
+  const stop = ptyExitBarrier(pty)
   let display = ''
   const listener = pty.onData(data => { display += integration.journal.feed(data) })
   try {
@@ -77,5 +100,5 @@ test('existing Bash DEBUG hooks are preserved by explicitly declining command in
     assert.ok(display.includes('STILL_WORKS')); assert.ok(display.includes('ORIGINAL_DEBUG_HOOK'))
     assert.equal(integration.journal.snapshot().records.length, 0)
     assert.equal(await readFile(join(home, '.bashrc'), 'utf8'), original)
-  } finally { listener.dispose(); pty.kill(); await integration.dispose(); await rm(home, { recursive: true, force: true }) }
+  } finally { await stop(); listener.dispose(); await integration.dispose(); await rm(home, { recursive: true, force: true }) }
 })

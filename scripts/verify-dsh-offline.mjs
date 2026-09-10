@@ -32,7 +32,7 @@ const packed = JSON.parse(execFileSync('tar', ['-xOf', artifact, 'package/packag
 assert.equal(packed.name, manifest.name)
 assert.equal(packed.version, manifest.version)
 const entries = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' }).trim().split('\n')
-for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/terminal-runs.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
   assert.ok(entries.includes(`package/${file}`), `Release artifact must include ${file}`)
 }
 assert.ok(entries.every(path => path.startsWith('package/') && !path.split('/').includes('..')))
@@ -87,15 +87,59 @@ assert.ok(profileManifest.dsh.profile.bundles.includes(manifest.name), 'Actual p
 const runtimeRequire = createRequire(cli)
 const pluginRequire = createRequire(join(profile, 'node_modules/@harzva/dsh-terminal/lib/pty-compat.mjs'))
 const runtimePackages = {}
+const runtimePackageSources = {}
+async function verifyWebPlatformSeed(name) {
+  const frontend = '@deepseek-ai/dsh-web-frontend'
+  const runtimePackage = await realpath(runtimeRequire.resolve(`${frontend}/package.json`))
+  const pluginPackage = await realpath(pluginRequire.resolve(`${frontend}/package.json`))
+  assert.equal(pluginPackage, runtimePackage, 'The plugin must use the official runtime frontend')
+  const frontendVersion = JSON.parse(await readFile(runtimePackage, 'utf8')).version
+  assert.equal(frontendVersion, dshVersion, 'The browser platform seed must come from the selected official frontend')
+  const dist = join(dirname(runtimePackage), 'dist')
+  const officialHtml = await readFile(join(dist, 'index.html'), 'utf8')
+  const response = await fetch(base, { signal: AbortSignal.timeout(10000) })
+  assert.equal(response.ok, true, 'The official frontend must be served')
+  const servedHtml = await response.text()
+  let evidence
+  for (const [, source] of officialHtml.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)) {
+    const url = new URL(source, base)
+    if (url.origin !== base || !url.pathname.startsWith('/assets/') || !url.pathname.endsWith('.js')) continue
+    const asset = await readFile(join(dist, url.pathname.slice(1)))
+    const code = asset.toString('utf8')
+    // The pinned official shell exports React primitives through its platform
+    // seed, not through a Node package installed beside the CLI or plugin.
+    const seed = code.match(/"@deepseek-ai\/dsh-client-ui-primitives"\s*:\s*([\w$]+)/)
+    if (!seed) continue
+    const identifier = seed[1].replaceAll('$', '\\$')
+    const namespace = code.match(new RegExp(`${identifier}\\s*=\\s*Object\\.freeze\\(Object\\.defineProperty\\(\\{([^}]+)\\},`))
+    assert.ok(namespace && /\bMarkdownText\s*:/.test(namespace[1]), 'The public platform seed must export MarkdownText')
+    assert.ok(servedHtml.includes(`src="${source}"`), 'The live frontend must load the verified official asset')
+    const served = await fetch(url, { signal: AbortSignal.timeout(10000) })
+    assert.equal(served.ok, true, 'The platform seed asset must be reachable')
+    const hash = bytes => createHash('sha256').update(bytes).digest('hex')
+    assert.equal(hash(Buffer.from(await served.arrayBuffer())), hash(asset), 'The served platform seed must match the official installed frontend')
+    evidence = { kind: 'web-platform-seed', package: frontend, version: frontendVersion, assetSha256: hash(asset), exports: ['MarkdownText'] }
+    break
+  }
+  assert.ok(evidence, `${name} must be present in the official frontend platform seed`)
+  runtimePackages[name] = frontendVersion
+  runtimePackageSources[name] = evidence
+}
 async function verifyRuntimePackages() {
   // Official profile boot creates its runtime-package bridge. Check the actual
   // resulting resolution after boot, before allocating any test terminals.
   for (const name of Object.keys(manifest.peerDependencies).filter(name => name.startsWith('@deepseek-ai/'))) {
+    assert.equal(packed.peerDependencies?.[name], dshVersion, `${name} must declare the selected official version in the release artifact`)
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+      await verifyWebPlatformSeed(name)
+      continue
+    }
     const runtimePackage = await realpath(runtimeRequire.resolve(`${name}/package.json`))
     const pluginPackage = await realpath(pluginRequire.resolve(`${name}/package.json`))
     assert.equal(pluginPackage, runtimePackage, `${name} must resolve to the official runtime's single package instance`)
     runtimePackages[name] = JSON.parse(await readFile(pluginPackage, 'utf8')).version
     assert.equal(runtimePackages[name], dshVersion, `${name} must use the selected official version`)
+    runtimePackageSources[name] = { kind: 'node-single-instance', version: runtimePackages[name] }
   }
 }
 
@@ -106,7 +150,7 @@ const port = await new Promise((resolvePort, reject) => {
 })
 const base = `http://127.0.0.1:${port}`
 const command = [cli, '--profile', 'web', '--host', '127.0.0.1', '--port', String(port), '--no-open']
-const report = { schema: 1, artifactSha256: createHash('sha256').update(artifactBytes).digest('hex'), pluginVersion: manifest.version, dshVersion, runtimePackages, fixture, profile, workspace, cli, port, command, checks: {}, cleanup: {}, startedAt: new Date().toISOString() }
+const report = { schema: 1, artifactSha256: createHash('sha256').update(artifactBytes).digest('hex'), pluginVersion: manifest.version, dshVersion, runtimePackages, runtimePackageSources, fixture, profile, workspace, cli, port, command, checks: {}, cleanup: {}, startedAt: new Date().toISOString() }
 await writeFile(join(fixture, 'restart.json'), JSON.stringify({ executable: process.execPath, args: command, cwd: workspace, env: childEnv }, null, 2) + '\n')
 let server
 let logs = ''
@@ -250,6 +294,33 @@ try {
   assert.equal((await callOwner(side.sessionId, 'list', {})).terminals[0].pid, sidePty.pid)
   report.checks.independentOwnerAndPtyIsolation = true
   report.checks.independentSurvivesConversationSwitch = true
+
+  // Reading natural-language execution state must not allocate an executor or
+  // run a model. Real native execution is verified separately with a model.
+  const sessionBaseline = (await rpc('session.list', {})).items.map(item => item.sessionId).sort()
+  for (let index = 0; index < 3; index++) {
+    for (const entry of [terminals[0], sidePty]) {
+      const state = await callOwner(entry.ownerSessionId, 'runState', { terminalId: entry.id })
+      assert.equal(state.terminalId, entry.id)
+      assert.equal(state.status, 'idle')
+      assert.deepEqual(state.messages, [])
+      assert.deepEqual(state.acceptedRequestIds, [])
+      assert.equal(state.sessionId, undefined, 'Read-only state must not bind an execution session')
+      assert.equal(state.policy.mode, 'workspace-write')
+      assert.equal(state.policy.approval, 'never')
+    }
+  }
+  await assert.rejects(call('runState', { terminalId: sidePty.id }), /没有这个终端/)
+  await assert.rejects(callOwner(side.sessionId, 'runState', { terminalId: terminals[0].id }), /没有这个终端/)
+  const sessionsAfterState = (await rpc('session.list', {})).items
+  assert.deepEqual(sessionsAfterState.map(item => item.sessionId).sort(), sessionBaseline,
+    'Polling empty execution state must not allocate a native Agent session')
+  assert.ok(sessionsAfterState.every(item => !item.running), 'Read-only state must not start an Agent turn')
+  assert.deepEqual((await call('list', {})).terminals.map(entry => entry.id).sort(),
+    terminals.filter(entry => entry.ownerSessionId === sessionId).map(entry => entry.id).sort())
+  assert.deepEqual((await callOwner(side.sessionId, 'list', {})).terminals.map(entry => entry.id), [sidePty.id])
+  report.checks.nativeRunEmptyStateDoesNotAllocateOrExecute = true
+  report.checks.nativeRunReadOwnerIsolation = true
 
   handoffOwner = side.sessionId
   const handoffCall = (method, request = {}) => callOwner(handoffOwner, method, request)
