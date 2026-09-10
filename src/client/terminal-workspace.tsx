@@ -4,13 +4,15 @@ import { AgentManager, SmartAssistant } from './agent-manager';
 import { AgentIcon } from './agent-icon';
 import { TerminalPane } from './terminal-pane';
 import { SupervisorPanel } from './supervisor-panel';
+import { HandoffPanel, HandoffSummary, useHandoffs } from './handoff-panel';
 import { layoutGeometry, leafSlots, neighborSlot, pointerRatio, presetLayout, removeSlot, resizeSplit, splitSlot } from './layout.mjs';
 import type { LayoutPreset, LayoutTree, Rect, Separator } from './layout.mjs';
 import type { TerminalBridge, TerminalLauncher, TerminalSummary } from './types';
 import workspaceCss from './terminal-workspace.css';
+import handoffCss from './handoff.css';
 import xtermCss from '@xterm/xterm/css/xterm.css';
 
-export type TerminalWorkspaceProps = { bridge: TerminalBridge; sessionId: string; active?: boolean; compact?: boolean; contextLabel?: string };
+export type TerminalWorkspaceProps = { bridge: TerminalBridge; sessionId: string; active?: boolean; compact?: boolean; contextLabel?: string; conversationTitle?: string; onShowConversation?(): void };
 
 function errorText(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 1200);
@@ -26,7 +28,7 @@ class PaneBoundary extends Component<{ children: React.ReactNode }, { failed: bo
   }
 }
 
-function WorkspaceSession({ bridge, sessionId, active = true, compact = false, contextLabel = '关联对话' }: TerminalWorkspaceProps) {
+function WorkspaceSession({ bridge, sessionId, active = true, compact = false, contextLabel = '关联对话', conversationTitle = '关联对话', onShowConversation }: TerminalWorkspaceProps) {
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
   const [memory] = useState(() => loadWorkspaceMemory(sessionId));
@@ -54,6 +56,10 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const [showManager, setShowManager] = useState(false);
   const [showSmart, setShowSmart] = useState(false);
   const [showSupervisor, setShowSupervisor] = useState(false);
+  const [showHandoff, setShowHandoff] = useState(false);
+  const [handoffOpenAt, setHandoffOpenAt] = useState<{section: 'form' | 'records'; request: number}>({section: 'form', request: 0});
+  const [handoffSource, setHandoffSource] = useState<{id: string; launcher: string; title?: string}>();
+  const handoffs = useHandoffs(bridge, active);
   const [customCli, setCustomCli] = useState('');
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
@@ -197,6 +203,12 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
 
   const terminals = slots.filter((item): item is TerminalSummary => item !== null);
   const running = terminals.filter(item => item.state === 'running').length;
+  const openHandoff = (section: 'form' | 'records' = 'form') => {
+    const source = slots[selectedSlot];
+    setHandoffSource(source ? {id:source.id, launcher:source.launcher, title:records[selectedSlot]?.title} : undefined);
+    setHandoffOpenAt(previous => ({section, request: previous.request + 1}));
+    setShowSmart(false); setShowManager(false); setShowHandoff(true);
+  };
   const visibleSlots = leafSlots(layout);
   const hiddenTerminals = slots.flatMap((terminal, index) => terminal && !visibleSlots.includes(index) ? [{ terminal, index }] : []);
   const zoomedIndex = slots.findIndex(item => item?.id === zoomed);
@@ -322,6 +334,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   return (
     <div className={`dsh-terminal-workspace${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} onKeyDownCapture={onKeyDown}>
       <style>{workspaceCss}</style>
+      <style>{handoffCss}</style>
       <style>{xtermCss}</style>
       <header className="dt-workspace-bar">
         <div className="dt-brand"><span className="dt-brand-mark">&gt;_</span><strong>DSH SuperTerminal</strong><span className="dt-brand-subtitle">WORKSPACE</span></div>
@@ -329,6 +342,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         <button className="dt-toolbar-button dt-new-terminal" onClick={newTerminal}>＋ 新建终端</button>
         <button className="dt-toolbar-button" aria-pressed={showManager} onClick={() => setShowManager(value => !value)}>智能体管理</button>
         <button className="dt-toolbar-button" aria-pressed={showSmart} onClick={() => setShowSmart(value => !value)}>✦ 智能建议</button>
+        <button className="dt-toolbar-button dt-handoff-entry" aria-expanded={showHandoff} onClick={() => openHandoff()}>↗ 交给 Agent</button>
         <button className="dt-toolbar-button" aria-expanded={showSupervisor} onClick={() => setShowSupervisor(value => !value)}>Supervisor</button>
         <span className="dt-running-count"><i />{running} 运行 · {terminals.length} 终端</span>
         <label className="dt-layout-select">布局 <select aria-label="布局预设" value={preset}
@@ -345,6 +359,13 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         <button className="dt-toolbar-button" onClick={() => { void refresh(true); }} disabled={loading}>刷新列表</button>
       </header>
       <div className="dt-workspace-context"><span className="dt-context-label">工作目录</span><span className="dt-cwd" title={cwd}>{cwd || (loading ? '读取中…' : '暂不可用')}</span><span className="dt-context-hint">{contextLabel}</span></div>
+      <HandoffSummary tasks={handoffs.tasks} onOpen={() => openHandoff('records')}/>
+      <HandoffPanel bridge={bridge} sessionId={sessionId} conversationTitle={conversationTitle}
+        source={handoffSource} availableTerminalIds={terminals.map(item => item.id)}
+        excerpt={excerpt} tasks={handoffs.tasks} targets={handoffs.targets} error={handoffs.error} loaded={handoffs.loaded}
+        opened={showHandoff} openAt={handoffOpenAt} onClose={() => setShowHandoff(false)} refresh={handoffs.refresh}
+        onShowTerminal={id => { const index = slots.findIndex(item => item?.id === id); if (index < 0) return false; showSlot(index); return true; }}
+        onShowConversation={onShowConversation}/>
       {showManager && <AgentManager bridge={bridge} destination={(!slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item,i)=>!item && !opening[i])) + 1} onClose={() => setShowManager(false)} onLaunch={id => {
         const index = !slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item, i) => !item && !opening[i]);
         if (index < 0) { setActionError('已打开 12 个终端，请先结束一个任务。'); return; }
@@ -357,7 +378,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           if(index<0){setActionError('目标终端已关闭，请重新选择。');return;}
           setDrafts(previous=>({...previous,[targetId]:{id:crypto.randomUUID(),text}}));showSlot(index);
         }} />}
-      {showSupervisor && <SupervisorPanel sessionId={sessionId} />}
+      {showSupervisor && <SupervisorPanel sessionId={sessionId} tasks={handoffs.tasks} onOpenHandoffs={() => openHandoff('records')} />}
       {(listError || actionError) && <div className="dt-workspace-notice" role="alert">{listError || actionError}</div>}
       {hiddenTerminals.length > 0 && <div className="dt-hidden-panes"><span>已收起 · 进程保留</span>{hiddenTerminals.map(({ terminal, index }) =>
         <button key={terminal.id} onClick={() => showSlot(index)} title={`重新显示终端 ${index + 1}`}>

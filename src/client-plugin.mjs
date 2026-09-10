@@ -49,7 +49,7 @@ function readSidePreference() {
     return { sourceSessionId: value.sourceSessionId, sessionId: value.sessionId, mode: value.mode === 'independent' ? 'independent' : 'bound' }
   } catch { return null }
 }
-function ScopeTerminal({ sessionId, invokeTerminal, active, compact, contextLabel, recoverSession }) {
+function ScopeTerminal({ sessionId, invokeTerminal, active, compact, contextLabel, conversationTitle, onShowConversation, recoverSession }) {
   const recoveryAt = React.useRef(0)
   const bridge = React.useMemo(() => {
     const methods = Object.fromEntries(METHODS.map(method => [method,
@@ -67,7 +67,7 @@ function ScopeTerminal({ sessionId, invokeTerminal, active, compact, contextLabe
     return methods
   }, [sessionId, invokeTerminal, recoverSession])
   return React.createElement('div', { style: { display: active ? 'block' : 'none', height: '100%' } },
-    React.createElement(TerminalBoundary, null, React.createElement(TerminalWorkspace, { bridge, sessionId, active, compact, contextLabel })))
+    React.createElement(TerminalBoundary, null, React.createElement(TerminalWorkspace, { bridge, sessionId, active, compact, contextLabel, conversationTitle, onShowConversation })))
 }
 function DockSeat({ container, onUnavailable }) {
   const seat = React.useRef(null)
@@ -177,7 +177,12 @@ function TerminalOverlay(props) {
     error && React.createElement('div',{role:'alert',style:{padding:12,color:'#e5c18c',fontSize:12}},error,
       React.createElement('button',{onClick:connectIndependent,disabled:busy},'重新连接')),
     !activeId && React.createElement('div',{style:{padding:28,color:'#8e9eaa',fontSize:12}},busy?'正在准备独立工作台…':'选择一个对话后，即可在旁边开始工作。'),
-    React.createElement('div',{style:{flex:1,minHeight:0}},ids.map(id=>React.createElement(ScopeTerminal,{key:id,sessionId:id,invokeTerminal:props.invokeTerminal,active:state.opened && id===activeId,compact:!expanded,contextLabel:id===independent?'独立工作台':'关联对话',recoverSession:id===independent?recoverSession:undefined}))))
+    React.createElement('div',{style:{flex:1,minHeight:0}},ids.map(id=>React.createElement(ScopeTerminal,{key:id,sessionId:id,invokeTerminal:props.invokeTerminal,active:state.opened && id===activeId,compact:!expanded,contextLabel:id===independent?'独立工作台':'关联对话',
+      conversationTitle:sessions.byId[id]?.displayTitle || (id===independent?'独立工作台':'关联对话'),
+      onShowConversation:props.isAvailable(id) ? () => {
+        try { props.openConversation(id); props.actions.hide() } catch { setError('原对话暂时无法打开，协作结果已保留。') }
+      } : undefined,
+      recoverSession:id===independent?recoverSession:undefined}))))
   return React.createElement(React.Fragment, null,
     React.createElement('div', {ref:floatingSeat,style:{display:state.opened && !docked?'block':'none',position:'fixed',top:8,right:8,bottom:8,
       width:expanded?'calc(100vw - 16px)':'min(720px, calc(100vw - 24px))',zIndex:100,pointerEvents:'auto',borderRadius:12,overflow:'hidden',border:'1px solid #34423c',boxShadow:'-16px 0 48px #0005'}}),
@@ -236,7 +241,7 @@ export async function apply(ctx) {
     name: 'shell.overlay', id: 'dsh-terminal-workspace', order: 120, store,
     inject: (actions) => {
       viewActions = actions
-      return { invokeTerminal, isAvailable, canDock, mountDock, openDetails, closeDetails }
+      return { invokeTerminal, isAvailable, canDock, mountDock, openDetails, closeDetails, openConversation: id => ctx.sessions.open(id) }
     },
   }, TerminalOverlay))
   ctx.slots.inject('conversation.input.left', () => ctx.slots.register({

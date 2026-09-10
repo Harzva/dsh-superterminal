@@ -1,0 +1,94 @@
+.dsh-terminal-workspace .dt-handoff-entry { color:#b6dfce; border-color:#3c554a; }
+.dsh-terminal-workspace .dt-handoff-panel { position:absolute; inset:0 0 0 auto; z-index:13; width:min(530px,100%); display:flex; flex-direction:column; background:#10161b; border-left:1px solid #2d3c3a; box-shadow:-24px 0 60px #0007; }
+.dsh-terminal-workspace .dt-handoff-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:28px 28px 22px; border-bottom:1px solid #ffffff0b; flex-shrink:0; }
+.dsh-terminal-workspace .dt-handoff-eyebrow { color:#91b3a4; font-size:10px; letter-spacing:2px; }
+.dsh-terminal-workspace .dt-handoff-header h2 { font-size:24px; font-weight:500; letter-spacing:-.7px; margin:9px 0 0; }
+.dsh-terminal-workspace .dt-handoff-header .dt-icon-action { padding:2px 5px; font-size:24px; color:#8ca098; }
+.dsh-terminal-workspace .dt-handoff-scroll { overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#35493f transparent; padding:22px 28px 32px; min-height:0; }
+.dsh-terminal-workspace .dt-handoff-destination { display:flex; align-items:center; gap:12px; font-size:11px; padding-bottom:22px; color:#7f9991; }
+.dsh-terminal-workspace .dt-handoff-destination strong { color:#aabeb5; font-weight:450; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dsh-terminal-workspace .dt-handoff-destination>span { flex-shrink:0; }
+.dsh-terminal-workspace .dt-handoff-form { display:flex; flex-direction:column; gap:19px; }
+.dsh-terminal-workspace .dt-handoff-source { display:flex; gap:12px; align-items:center; color:#829a90; font-size:11px; }
+.dsh-terminal-workspace .dt-handoff-source button { display:flex; gap:8px; align-items:center; padding:7px 9px; border:1px solid #33443d; background:#19241e; color:#c1d8cd; max-width:100%; }
+.dsh-terminal-workspace .dt-handoff-source svg { width:15px; height:15px; }
+.dsh-terminal-workspace .dt-handoff-source-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dsh-terminal-workspace .dt-handoff-source button>span:last-child { color:#748e80; }
+.dsh-terminal-workspace .dt-handoff-source button:disabled { opacity:1; border-color:#303b35; background:#17201b; color:#83998b; cursor:default; }
+.dsh-terminal-workspace .dt-handoff-source-closed { margin:-8px 0 0; color:#b4ad91; font-size:11px; line-height:1.7; }
+.dsh-terminal-workspace .dt-handoff-pending { margin:-7px 0 0; padding:10px 12px; border:1px solid #455343; border-radius:8px; background:#25302255; color:#bac9ae; font-size:11px; line-height:1.7; }
+.dsh-terminal-workspace .dt-handoff-label { display:block; color:#a7b7b0; font-size:11px; line-height:1.6; }
+.dsh-terminal-workspace .dt-handoff-target { display:flex; align-items:center; gap:11px; border:1px solid #3a4b42; border-radius:9px; background:#16211c; padding:10px 12px; margin-top:8px; }
+.dsh-terminal-workspace .dt-handoff-target>svg { width:23px; height:23px; flex-shrink:0; }
+.dsh-terminal-workspace .dt-handoff-target select { min-width:0; flex:1; border:0; background:transparent; color:#d1e2d9; font:inherit; font-size:13px; padding:4px 0; outline-offset:4px; }
+.dsh-terminal-workspace .dt-handoff-target option { color:#d1e2d9; background:#142019; }
+.dsh-terminal-workspace .dt-handoff-target>span { color:#708b7d; font-size:10px; white-space:nowrap; }
+.dsh-terminal-workspace .dt-handoff-target-note { display:block; margin-top:7px; color:#8aa191; font-size:10px; line-height:1.7; }
+.dsh-terminal-workspace .dt-handoff-label textarea,.dsh-terminal-workspace .dt-handoff-label>input { display:block; width:100%; margin-top:8px; border:1px solid #303d3b; border-radius:9px; background:#0c1217; color:#d9e5de; padding:12px 13px; font:inherit; font-size:12px; line-height:1.8; resize:vertical; min-height:44px; }
+.dsh-terminal-workspace .dt-handoff-label textarea { font-size:12px; }
+.dsh-terminal-workspace .dt-handoff-label textarea:focus,.dsh-terminal-workspace .dt-handoff-label>input:focus { border-color:#88bda5; outline:2px solid #87c8a914; }
+.dsh-terminal-workspace .dt-handoff-label textarea::placeholder,.dsh-terminal-workspace .dt-handoff-label>input::placeholder { color:#61756e; }
+.dsh-terminal-workspace .dt-handoff-optional { margin-left:6px; color:#546e61; font-size:10px; }
+.dsh-terminal-workspace .dt-handoff-sharing { display:flex; flex-direction:column; gap:15px; }
+.dsh-terminal-workspace .dt-handoff-sharing>label { display:flex; align-items:flex-start; gap:10px; font-size:11px; color:#b6c6bd; cursor:pointer; }
+.dsh-terminal-workspace .dt-handoff-sharing input { width:14px; height:14px; margin:3px 0 0; accent-color:#acd7bf; flex-shrink:0; }
+.dsh-terminal-workspace .dt-handoff-sharing small { display:block; margin-top:4px; color:#6c8578; font-size:10px; line-height:1.5; }
+.dsh-terminal-workspace .dt-handoff-sharing details { border:1px solid #2b3d34; border-radius:7px; padding:9px 12px; color:#a1b6a9; font-size:10px; }
+.dsh-terminal-workspace .dt-handoff-sharing pre { max-height:140px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:10px/1.7 ui-monospace,monospace; }
+.dsh-terminal-workspace .dt-handoff-submit { display:flex; align-items:center; justify-content:space-between; padding:12px 15px; border-radius:8px; font-weight:600; background:#afdcc5; color:#172d22; min-height:43px; }
+.dsh-terminal-workspace .dt-handoff-submit:hover:not(:disabled) { background:#c0e6d3; }
+.dsh-terminal-workspace .dt-handoff-footnote { color:#6c8578; font-size:10px; line-height:1.7; margin:-7px 0 0; }
+.dsh-terminal-workspace .dt-handoff-notice { margin:18px 0 0; padding:11px 13px; border:1px solid #536149; color:#cad3a9; background:#242c2044; border-radius:8px; font-size:11px; line-height:1.7; }
+.dsh-terminal-workspace .dt-handoff-list-heading { display:flex; justify-content:space-between; gap:10px; align-items:center; margin:30px 0 15px; border-top:1px solid #ffffff0d; padding-top:23px; }
+.dsh-terminal-workspace .dt-handoff-list-heading h3 { margin:0; font-size:12px; font-weight:550; color:#bbcbbf; }
+.dsh-terminal-workspace .dt-handoff-list-heading h3 span { margin-left:6px; color:#718e7d; font-size:10px; }
+.dsh-terminal-workspace .dt-handoff-list-heading>span { color:#668473; font-size:10px; }
+.dsh-terminal-workspace .dt-handoff-empty { border:1px dashed #2c3c34; border-radius:10px; text-align:center; padding:26px 16px; color:#96ad9e; font-size:11px; }
+.dsh-terminal-workspace .dt-handoff-empty>span { font-size:22px; color:#719e84; }
+.dsh-terminal-workspace .dt-handoff-empty small { font-size:10px; color:#5f7a69; }
+.dsh-terminal-workspace .dt-handoff-list { display:flex; flex-direction:column; gap:12px; }
+.dsh-terminal-workspace .dt-handoff-card { border:1px solid #2d3a34; border-radius:11px; background:#141d18; padding:17px; }
+.dsh-terminal-workspace .dt-handoff-card.is-running,.dsh-terminal-workspace .dt-handoff-card.is-queued { border-color:#506f5d; background:linear-gradient(125deg,#1e2e2344,#141d18); }
+.dsh-terminal-workspace .dt-handoff-route { display:flex; align-items:center; gap:11px; color:#6b8876; min-width:0; }
+.dsh-terminal-workspace .dt-handoff-route>span { display:flex; gap:7px; align-items:center; font-size:11px; color:#bed1c4; min-width:0; }
+.dsh-terminal-workspace .dt-handoff-route>span svg { width:16px; height:16px; flex-shrink:0; }
+.dsh-terminal-workspace .dt-handoff-route>svg { flex-shrink:0; }
+.dsh-terminal-workspace .dt-handoff-task-title { margin:13px 0 12px; color:#a4b8aa; font-size:12px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.dsh-terminal-workspace .dt-handoff-card-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:10px; color:#637b6c; }
+.dsh-terminal-workspace .dt-handoff-status { display:flex; align-items:center; gap:6px; color:#abc6b3; }
+.dsh-terminal-workspace .dt-handoff-status i { width:5px; height:5px; border-radius:50%; background:currentColor; }
+.dsh-terminal-workspace .is-failed .dt-handoff-status,.dsh-terminal-workspace .is-interrupted .dt-handoff-status { color:#d8b990; }
+.dsh-terminal-workspace .dt-handoff-card-actions { display:flex; justify-content:space-between; flex-wrap:wrap; gap:7px; margin-top:12px; }
+.dsh-terminal-workspace .dt-handoff-card-actions button { border:1px solid #30483a; font-size:10px; color:#9fbca8; padding:5px 9px; }
+.dsh-terminal-workspace .dt-handoff-delivered { display:block; font-size:10px; color:#9ac8ad; margin-top:10px; padding:0; text-align:left; }
+.dsh-terminal-workspace .dt-handoff-delivered:disabled { opacity:1; color:#9ac8ad; }
+.dsh-terminal-workspace .dt-handoff-delivery-error { color:#c7ae84; font-size:10px; line-height:1.7; margin:12px 0 0; }
+.dsh-terminal-workspace .dt-handoff-result { border-top:1px solid #ffffff0b; margin-top:15px; padding-top:13px; font-size:11px; }
+.dsh-terminal-workspace .dt-handoff-result strong { color:#b9ccc0; font-size:10px; font-weight:500; }
+.dsh-terminal-workspace .dt-handoff-result p { line-height:1.8; color:#8fa797; white-space:pre-wrap; overflow-wrap:anywhere; }
+.dsh-terminal-workspace .dt-handoff-output { margin-top:17px; }
+.dsh-terminal-workspace .dt-handoff-output-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.dsh-terminal-workspace .dt-handoff-output-heading button { padding:5px 9px; border:1px solid #365341; border-radius:6px; color:#b5d4c0; font-size:10px; white-space:nowrap; }
+.dsh-terminal-workspace .dt-handoff-copy-status { min-height:0; margin-top:7px; color:#a4cfb5; font-size:10px; line-height:1.6; }
+.dsh-terminal-workspace .dt-handoff-copy-status:empty { margin-top:0; }
+.dsh-terminal-workspace .dt-handoff-copy-status.is-error { color:#d4b792; }
+.dsh-terminal-workspace .dt-handoff-reader { margin:11px 0 10px; padding:15px 16px; overflow:hidden; border:1px solid #263d2e; border-radius:8px; background:#0e1711; color:#c8d9cf; white-space:pre-wrap; overflow-wrap:anywhere; word-break:normal; user-select:text; font:inherit; font-size:12px; line-height:1.95; tab-size:4; }
+.dsh-terminal-workspace .dt-handoff-reader.is-folded { mask-image:linear-gradient(#000 calc(100% - 32px),transparent); }
+.dsh-terminal-workspace .dt-handoff-reader:focus-visible { outline:2px solid #8ebda3; outline-offset:2px; }
+.dsh-terminal-workspace .dt-handoff-expand-result { display:flex; width:100%; justify-content:space-between; padding:8px 2px 12px; color:#a7c9b3; font-size:11px; }
+.dsh-terminal-workspace .dt-handoff-result small { color:#708e7a; font-size:10px; line-height:1.7; }
+.dsh-terminal-workspace .dt-handoff-result .dt-handoff-task-error { color:#d6b392; }
+.dsh-terminal-workspace .dt-handoff-no-source { border:1px solid #344a3c; padding:20px; border-radius:9px; color:#bfd1c4; }
+.dsh-terminal-workspace .dt-handoff-no-source p { color:#8ba493; font-size:11px; line-height:1.8; }
+.dsh-terminal-workspace .dt-handoff-no-source button { color:#aed6be; border-color:#3b5544; }
+.dsh-terminal-workspace .dt-handoff-summary { display:flex; flex-shrink:0; align-items:center; gap:12px; margin:0 16px 12px; padding:9px 12px; min-height:38px; border:1px solid #2c4434; border-radius:8px; background:#17221b; text-align:left; }
+.dsh-terminal-workspace .dt-handoff-summary>span { font-size:10px; color:#8db69b; }
+.dsh-terminal-workspace .dt-handoff-summary .dt-handoff-summary-more { margin-left:auto; white-space:nowrap; color:#657e6d; }
+.dsh-terminal-workspace .dt-supervisor-handoffs { display:flex; flex-direction:column; gap:7px; padding:12px 0; border-top:1px solid #ffffff12; margin-top:12px; }
+.dsh-terminal-workspace .dt-supervisor-handoffs>strong { font-size:10px; color:#9fbba9; }
+.dsh-terminal-workspace .dt-supervisor-handoffs button { display:flex; justify-content:space-between; gap:12px; font-size:10px; color:#aac7b5; padding:6px 8px; border:1px solid #405849; }
+.dsh-terminal-workspace.dt-compact .dt-handoff-header { padding:24px 21px 19px; }
+.dsh-terminal-workspace.dt-compact .dt-handoff-header h2 { font-size:22px; }
+.dsh-terminal-workspace.dt-compact .dt-handoff-scroll { padding:19px 21px 26px; }
+.dsh-terminal-workspace.dt-compact .dt-handoff-summary { margin:0 12px 10px; gap:9px; flex-wrap:wrap; }
+@media(max-width:520px) { .dsh-terminal-workspace .dt-handoff-target>span { display:none; } .dsh-terminal-workspace .dt-handoff-header { padding:20px; } .dsh-terminal-workspace .dt-handoff-scroll { padding:18px; } .dsh-terminal-workspace .dt-handoff-list-heading>span { font-size:9px; } }

@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { handoffStatus } from './handoff-panel';
+import type { HandoffTask } from './types';
 
 type State = { suggestion?: string; suggestError?: string; suggesting?: boolean; mode?: string };
-export function SupervisorPanel({ sessionId }: { sessionId: string }) {
+export function SupervisorPanel({ sessionId, tasks = [], onOpenHandoffs }: { sessionId: string; tasks?: HandoffTask[]; onOpenHandoffs?(): void }) {
   const [state, setState] = useState<State>({});
   const [error, setError] = useState('');
   const [round, setRound] = useState(0);
@@ -51,6 +53,8 @@ export function SupervisorPanel({ sessionId }: { sessionId: string }) {
     <div><strong>DSH Supervisor</strong><span>当前会话 · 运行状态</span>
       <button className="dt-toolbar-button" disabled={busy} onClick={() => setRound(value => value + 1)}>{busy ? '读取中…' : '生成一次建议'}</button></div>
     <p role="status">{error || state.suggestError || state.suggestion || (busy ? '正在读取监督状态…' : '尚无建议。点击生成时会使用 DSH 已配置的模型。')}</p>
-    <small>根据终端运行状态提供建议，不读取终端内容。任务是否完成仍需核对。</small>
+    {tasks.length > 0 && <section className="dt-supervisor-handoffs" aria-label="Supervisor 协作关系"><strong>谁在帮助谁</strong>
+      {[...tasks].sort((a,b) => b.createdAt-a.createdAt).slice(0,4).map(task => <button key={task.id} onClick={onOpenHandoffs}><span>{task.sourceLauncher} → {task.targetLauncher}</span><span>{handoffStatus(task)}</span></button>)}</section>}
+    <small>根据任务目标、运行状态与协作关系提供建议。Agent 返回结果后，仍需结合目标验收。</small>
   </aside>;
 }
