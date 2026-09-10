@@ -4,6 +4,13 @@ const boundedId = z.string().min(1).max(128)
 const dimensions = { rows: z.number().int().min(2).max(500), cols: z.number().int().min(10).max(1000) }
 export const requests = {
   list: z.object({}).strict(),
+  handoffStart: z.object({ requestId: boundedId, sourceTerminalId: boundedId,
+    targetLauncher: z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/), prompt: z.string().trim().min(1).max(4000),
+    excerpt: z.string().trim().max(8000).optional(), criteria: z.string().trim().max(2000).optional(),
+    returnToConversation: z.boolean().optional() }).strict(),
+  handoffList: z.object({}).strict(),
+  handoffCancel: z.object({ taskId: boundedId }).strict(),
+  handoffReturn: z.object({ taskId: boundedId }).strict(),
   inventory: z.object({}).strict(),
   independent: z.object({ sessionId: boundedId.optional() }).strict(),
   suggest: z.object({ prompt: z.string().trim().min(1).max(4000), terminalId: boundedId.optional(), excerpt: z.string().trim().max(8000).optional() }).strict()

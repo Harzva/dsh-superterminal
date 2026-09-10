@@ -5,35 +5,14 @@ import { installedVersion } from './agent-inventory.mjs'
 import { requests } from './remote.mjs'
 import { localPtyCompatibility } from './pty-compat.mjs'
 import { IndependentScopes } from './independent-scope.mjs'
+import { CLI_STATE_BOOTSTRAP } from './cli-state.mjs'
+import { TerminalHandoffs } from './handoffs.mjs'
 
 const OUTPUT_BYTES = 8 * 1024 * 1024
 const READ_CHARS = 64 * 1024
 // Runs inside the same DSH sandbox as the CLI. Positional arguments carry all
 // paths; the script contains no interpolated commands, secrets, or user input.
 const TERMINAL_BOOTSTRAP = `export TERM=xterm-256color COLORTERM=truecolor
-exec "$@"`
-const CLI_STATE_BOOTSTRAP = `export TERM=xterm-256color COLORTERM=truecolor
-umask 077
-base=$1
-state=$2
-shift 2
-if [ -L "$base" ] || [ -L "$state" ] || [ -L "$base/.gitignore" ]; then
-  printf 'DSH Terminal: refusing a symlinked CLI data directory\\n' >&2
-  exit 1
-fi
-mkdir -p "$base" || exit 1
-if [ ! -e "$base/.gitignore" ]; then
-  ignore_tmp=$(mktemp "$base/.gitignore.XXXXXX") || exit 1
-  printf '*\\n' > "$ignore_tmp" || exit 1
-  ln "$ignore_tmp" "$base/.gitignore" 2>/dev/null || [ -f "$base/.gitignore" ] || exit 1
-  rm -f "$ignore_tmp"
-fi
-if [ "$(cat "$base/.gitignore")" != '*' ]; then
-  printf 'DSH Terminal: CLI data directory must be excluded from Git\\n' >&2
-  exit 1
-fi
-mkdir -p "$state" || exit 1
-chmod 700 "$base" "$state" || exit 1
 exec "$@"`
 const launchers = {
   shell: { label: 'Shell', command: process.platform === 'win32' ? 'pwsh' : 'zsh', args: process.platform === 'win32' ? ['-NoLogo'] : ['-f'] },
@@ -72,6 +51,7 @@ export class NativeTerminals {
     this.owners = new Map()
     this.stopped = false
     this.independentScopes = new IndependentScopes(this)
+    this.handoffs = new TerminalHandoffs(this)
   }
 
   current(owner) {
@@ -91,7 +71,7 @@ export class NativeTerminals {
       const [session, event] = args
       if (session !== owner.session || event.type !== 'sandbox/mode') return
       const current = this.effectiveMode(session.events) ?? this.ctx.sandboxPolicy.defaultMode
-      if (event.data.mode !== current && [...state.entries.values()].some(entry => !entry.settled)) {
+      if (event.data.mode !== current && ([...state.entries.values()].some(entry => !entry.settled) || this.handoffs.hasActive(owner))) {
         throw new Error('原生终端仍在创建、运行或清理；请先关闭终端再切换 sandbox 模式')
       }
     }, { global: true }))
@@ -121,8 +101,16 @@ export class NativeTerminals {
       id: entry.id, launcher: entry.launcher, state: entry.state,
       exitCode: entry.exitCode ?? null,
     })) : []
-    return { status: terminals.length ? 'ready' : 'empty', terminals }
+    const handoffs = this.handoffs.observation(owner)
+    return { status: terminals.length || handoffs.length ? 'ready' : 'empty', terminals, ...(handoffs.length ? { handoffs } : {}) }
   }
+
+  launcherCatalog() { return Object.entries(launchers).map(([id, value]) => ({ id, label: value.label })) }
+
+  async handoffStart(owner, request, signal) { return this.handoffs.start(owner, requests.handoffStart.parse(request), signal) }
+  async handoffList(owner, request, signal) { requests.handoffList.parse(request); return this.handoffs.list(owner, signal) }
+  async handoffCancel(owner, request, signal) { return this.handoffs.cancel(owner, requests.handoffCancel.parse(request), signal) }
+  async handoffReturn(owner, request, signal) { return this.handoffs.returnResult(owner, requests.handoffReturn.parse(request), signal) }
 
   async inventory(owner, request, signal) {
     requests.inventory.parse(request)
@@ -389,6 +377,7 @@ export class NativeTerminals {
     state.disposed = true
     for (const entry of state.entries.values()) entry.controller.abort(new Error('DSH owner disposed'))
     state.disposal = (async () => {
+      await this.handoffs.disposeOwner(owner)
       // Allocation promises must settle before final process cleanup, including late handles.
       await Promise.allSettled([...state.opens.values()].map(item => item.result))
       const outcomes = await Promise.allSettled([...state.entries.values()].map(entry => this.settle(entry)))
@@ -412,7 +401,7 @@ export class NativeTerminals {
     await this.independentScopes.quiesce()
     const states = [...this.owners]
     const results = await Promise.allSettled(states.map(([owner, state]) => this.disposeOwner(owner, state)))
-    const independent = await Promise.allSettled([this.independentScopes.stop()])
+    const independent = await Promise.allSettled([this.independentScopes.stop(), this.handoffs.close()])
     const detached = await Promise.allSettled(states.flatMap(([, state]) => state.detachers.map(detach => Promise.resolve().then(() => detach?.()))))
     const errors = [...independent, ...results, ...detached].filter(result => result.status === 'rejected').map(result => result.reason)
     if (errors.length) throw new AggregateError(errors, '原生终端停用时有资源未完成清理')
