@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="410" viewBox="0 0 1120 410" role="img" aria-labelledby="board-title"><title id="board-title">Four original DSH SuperTerminal logos: Mimi, Pip, Duo and Sprout</title><rect width="1120" height="410" rx="22" fill="#F6F5EF"/><text x="32" y="46" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#253A34">DSH SuperTerminal</text><text x="1088" y="44" text-anchor="end" font-family="Arial,sans-serif" font-size="11" fill="#7A857B" letter-spacing="1.2">A LITTLE MORE PERSONAL.</text><rect x="32" y="76" width="246" height="300" rx="22" fill="#EFF1E7"/><text x="52" y="104" font-family="Arial,sans-serif" font-size="10" fill="#7A857B">01</text><svg x="75" y="127" width="160" height="160" viewBox="0 0 160 160" fill="none">
+  <title id="mimi-title">Mimi — DSH SuperTerminal</title>
+  <desc id="mimi-desc">A mint-green terminal kitten with soft ears and a cheerful command-prompt face.</desc>
+  <path d="M120 113c24 10 28-10 17-17" stroke="#182E2A" stroke-width="12" stroke-linecap="round"/>
+  <path d="M120 113c24 10 28-10 17-17" stroke="#BDE8D4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M30 54 28 28c-.4-5 3-7 7-4l28 17c11-4 23-4 34 0l28-17c4-3 7.4-1 7 4l-2 26c6 7 9 17 9 29v24c0 20-12 31-32 31H53c-20 0-32-11-32-31V83c0-12 3-22 9-29Z" fill="#BDE8D4" stroke="#182E2A" stroke-width="6" stroke-linejoin="round"/>
+  <path d="m40 37 2 16 14-5Z" fill="#F2ADA8"/>
+  <path d="m120 37-2 16-14-5Z" fill="#F2ADA8"/>
+  <rect x="34" y="60" width="92" height="57" rx="21" fill="#182E2A"/>
+  <path d="m54 75 12 12-12 12M83 99h19" stroke="#BDE8D4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M62 129h8m20 0h8" stroke="#182E2A" stroke-width="5" stroke-linecap="round"/>
+</svg><text x="155" y="323" text-anchor="middle" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#253A34">Mimi</text><text x="155" y="349" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" fill="#7A857B">The terminal kitten</text><rect x="302" y="76" width="246" height="300" rx="22" fill="#F2EEE3"/><text x="322" y="104" font-family="Arial,sans-serif" font-size="10" fill="#7A857B">02</text><svg x="345" y="127" width="160" height="160" viewBox="0 0 160 160" fill="none">
+  <title id="pip-bot-title">Pip Bot — DSH SuperTerminal</title>
+  <desc id="pip-bot-desc">A rounded mint robot companion with a coral cursor antenna and a cream terminal face.</desc>
+  <path d="M80 28V44" stroke="#182E2A" stroke-width="8" stroke-linecap="round"/>
+  <rect x="71" y="12" width="18" height="20" rx="8" fill="#F2ADA8" stroke="#182E2A" stroke-width="6"/>
+  <rect x="15" y="76" width="20" height="29" rx="10" fill="#182E2A"/>
+  <rect x="125" y="76" width="20" height="29" rx="10" fill="#182E2A"/>
+  <rect x="29" y="43" width="102" height="99" rx="31" fill="#BDE8D4" stroke="#182E2A" stroke-width="8"/>
+  <rect x="42" y="65" width="76" height="49" rx="17" fill="#182E2A"/>
+  <path d="M56 79L66 89L56 99M83 99H100" stroke="#F6DBA6" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="51" cy="124" r="5" fill="#F2ADA8"/>
+  <circle cx="109" cy="124" r="5" fill="#F2ADA8"/>
+</svg><text x="425" y="323" text-anchor="middle" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#253A34">Pip</text><text x="425" y="349" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" fill="#7A857B">Your little assistant</text><rect x="572" y="76" width="246" height="300" rx="22" fill="#EFEAE5"/><text x="592" y="104" font-family="Arial,sans-serif" font-size="10" fill="#7A857B">03</text><svg x="615" y="127" width="160" height="160" viewBox="0 0 160 160" fill="none">
+  <title id="duo-title">Duo — DSH SuperTerminal</title>
+  <desc id="duo-desc">Two little terminal companions lean together, each with its own command-prompt face.</desc>
+  <path d="m71 26 3-9m14 10 6-7" stroke="#182E2A" stroke-width="5" stroke-linecap="round"/>
+  <g transform="rotate(-8 53 89)">
+    <rect x="13" y="48" width="82" height="85" rx="25" fill="#BDE8D4" stroke="#182E2A" stroke-width="6"/>
+    <path d="M35 70h37" stroke="#182E2A" stroke-width="4" stroke-linecap="round" opacity=".3"/>
+    <path d="m33 86 10 10-10 10m25 0h12" stroke="#182E2A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="rotate(8 110 83)">
+    <rect x="67" y="38" width="80" height="85" rx="25" fill="#F6DBA6" stroke="#182E2A" stroke-width="6"/>
+    <path d="M88 60h36" stroke="#182E2A" stroke-width="4" stroke-linecap="round" opacity=".3"/>
+    <path d="m86 76 10 10-10 10m25 0h12" stroke="#182E2A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg><text x="695" y="323" text-anchor="middle" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#253A34">Duo</text><text x="695" y="349" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" fill="#7A857B">Better, together</text><rect x="842" y="76" width="246" height="300" rx="22" fill="#E8EEEB"/><text x="862" y="104" font-family="Arial,sans-serif" font-size="10" fill="#7A857B">04</text><svg x="885" y="127" width="160" height="160" viewBox="0 0 160 160" fill="none">
+  <title id="sprout-title">Sprout — DSH SuperTerminal</title>
+  <desc id="sprout-desc">A cream seed-shaped terminal with two mint leaves, a friendly prompt face, and a coral cheek.</desc>
+  <path d="M80 64V44" stroke="#182E2A" stroke-width="8" stroke-linecap="round"/>
+  <path d="M79 48C59 49 46 35 48 19C67 18 82 29 79 48Z" fill="#BDE8D4" stroke="#182E2A" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M81 44C83 24 103 13 124 17C123 37 106 52 81 44Z" fill="#BDE8D4" stroke="#182E2A" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M54 59H105C122 59 134 72 134 89V107C134 127 118 143 98 143H64C43 143 27 127 27 107V87C27 71 39 59 54 59Z" fill="#F6DBA6" stroke="#182E2A" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M51 85L64 98L51 111M81 111H101" stroke="#182E2A" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="114" cy="117" r="6" fill="#F2ADA8"/>
+</svg><text x="965" y="323" text-anchor="middle" font-family="Arial,sans-serif" font-size="24" font-weight="700" fill="#253A34">Sprout</text><text x="965" y="349" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" fill="#7A857B">Room to grow</text></svg>

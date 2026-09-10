@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none" role="img" aria-labelledby="sprout-title sprout-desc">
+  <title id="sprout-title">Sprout — DSH SuperTerminal</title>
+  <desc id="sprout-desc">A cream seed-shaped terminal with two mint leaves, a friendly prompt face, and a coral cheek.</desc>
+  <path d="M80 64V44" stroke="#182E2A" stroke-width="8" stroke-linecap="round"/>
+  <path d="M79 48C59 49 46 35 48 19C67 18 82 29 79 48Z" fill="#BDE8D4" stroke="#182E2A" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M81 44C83 24 103 13 124 17C123 37 106 52 81 44Z" fill="#BDE8D4" stroke="#182E2A" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M54 59H105C122 59 134 72 134 89V107C134 127 118 143 98 143H64C43 143 27 127 27 107V87C27 71 39 59 54 59Z" fill="#F6DBA6" stroke="#182E2A" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M51 85L64 98L51 111M81 111H101" stroke="#182E2A" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="114" cy="117" r="6" fill="#F2ADA8"/>
+</svg>

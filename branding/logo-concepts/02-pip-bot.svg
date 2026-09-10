@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none" role="img" aria-labelledby="pip-bot-title pip-bot-desc">
+  <title id="pip-bot-title">Pip Bot — DSH SuperTerminal</title>
+  <desc id="pip-bot-desc">A rounded mint robot companion with a coral cursor antenna and a cream terminal face.</desc>
+  <path d="M80 28V44" stroke="#182E2A" stroke-width="8" stroke-linecap="round"/>
+  <rect x="71" y="12" width="18" height="20" rx="8" fill="#F2ADA8" stroke="#182E2A" stroke-width="6"/>
+  <rect x="15" y="76" width="20" height="29" rx="10" fill="#182E2A"/>
+  <rect x="125" y="76" width="20" height="29" rx="10" fill="#182E2A"/>
+  <rect x="29" y="43" width="102" height="99" rx="31" fill="#BDE8D4" stroke="#182E2A" stroke-width="8"/>
+  <rect x="42" y="65" width="76" height="49" rx="17" fill="#182E2A"/>
+  <path d="M56 79L66 89L56 99M83 99H100" stroke="#F6DBA6" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="51" cy="124" r="5" fill="#F2ADA8"/>
+  <circle cx="109" cy="124" r="5" fill="#F2ADA8"/>
+</svg>

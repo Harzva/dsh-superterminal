@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none" role="img" aria-labelledby="duo-title duo-desc">
+  <title id="duo-title">Duo — DSH SuperTerminal</title>
+  <desc id="duo-desc">Two little terminal companions lean together, each with its own command-prompt face.</desc>
+  <path d="m71 26 3-9m14 10 6-7" stroke="#182E2A" stroke-width="5" stroke-linecap="round"/>
+  <g transform="rotate(-8 53 89)">
+    <rect x="13" y="48" width="82" height="85" rx="25" fill="#BDE8D4" stroke="#182E2A" stroke-width="6"/>
+    <path d="M35 70h37" stroke="#182E2A" stroke-width="4" stroke-linecap="round" opacity=".3"/>
+    <path d="m33 86 10 10-10 10m25 0h12" stroke="#182E2A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="rotate(8 110 83)">
+    <rect x="67" y="38" width="80" height="85" rx="25" fill="#F6DBA6" stroke="#182E2A" stroke-width="6"/>
+    <path d="M88 60h36" stroke="#182E2A" stroke-width="4" stroke-linecap="round" opacity=".3"/>
+    <path d="m86 76 10 10-10 10m25 0h12" stroke="#182E2A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
