@@ -1,3 +1,4 @@
+import type {NativeTaskState, NativeTaskInput} from './types';
 export interface AssistantTarget { id: string; launcher: string; title?: string; number?: number }
 export interface AssistantSeed { id: string; sessionId: string; terminalId: string; prompt: string; excerpt: string }
 export interface AssistantSnapshot {
@@ -5,6 +6,8 @@ export interface AssistantSnapshot {
   copied: Record<string, 'copied' | 'failed'>; drafted?: number; seedId?: string;
   result?: {text: string; prompt: string; target: AssistantTarget; createdAt: number};
   terminalDraft?: {id: string; text: string};
+  runDraft?: string; runExcerpt?: string; runState?: NativeTaskState; runPending?: NativeTaskInput;
+  runBusy?: boolean; runError?: string; runErrorKind?: 'send' | 'stop'; runRevision?: number;
 }
 type Patch = Partial<AssistantSnapshot> | ((value: AssistantSnapshot) => Partial<AssistantSnapshot>);
 function createMemory() {

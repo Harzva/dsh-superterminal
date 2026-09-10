@@ -1,9 +1,9 @@
 {
   "name": "@harzva/dsh-terminal",
-  "version": "0.1.0-alpha.7",
+  "version": "0.1.0-alpha.8",
   "private": true,
   "type": "module",
-  "description": "DSH SuperTerminal: resizable terminals, local agent library, and DSH-powered command advice",
+  "description": "DSH SuperTerminal: natural-language tasks, resizable terminals, and a local agent library",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -62,23 +62,26 @@
     "verify:dsh-offline": "node scripts/verify-dsh-offline.mjs"
   },
   "dependencies": {
-    "@xterm/xterm": "6.0.0",
     "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "zod": "4.4.3"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-agent": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-sandbox-policy": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-subagent": "0.1.1-rc.2",
     "@deepseek-ai/dsh-subprocess": "0.1.1-rc.2",
     "@deepseek-ai/dsh-subprocess-local": "0.1.1-rc.2",
-    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
     "@deepseek-ai/dsh-typert-protocol": "0.1.1-rc.2",
-    "@deepseek-ai/dsh-sandbox-policy": "0.1.1-rc.2",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "@types/react": "18.3.27",
     "esbuild": "0.25.12",
     "react": "18.3.1",
-    "@types/react": "18.3.27",
     "typescript": "5.9.3"
   }
 }

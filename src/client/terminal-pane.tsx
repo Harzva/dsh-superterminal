@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { AgentIcon } from './agent-icon';
 import { FitAddon } from '@xterm/addon-fit';
 import { ShellCommandHistory } from './shell-command-history';
+import naturalCss from './terminal-run-panel.css';
 import type { TerminalBridge, TerminalSummary } from './types';
 
 type Props = {
@@ -17,10 +18,13 @@ type Props = {
   autoClaim: boolean;
   title?: string;
   draft?: { id: string; text: string };
+  naturalContent?: React.ReactNode;
+  naturalOpen?: boolean;
+  onNaturalToggle?(open: boolean): void;
   onTitleChange?(title: string): void;
   onHide?(): void;
   onSelection?(text: string): void;
-  onSelectionAction?(action: 'explain' | 'fix' | 'handoff', text: string): void;
+  onSelectionAction?(action: 'execute' | 'explain' | 'fix' | 'handoff', text: string): void;
   onReadStatus?(failed: boolean): void;
   centralizedStatus?: boolean;
   onFocus(): void;
@@ -29,6 +33,10 @@ type Props = {
   onClosed(): void;
   onState(state: string, exitCode?: number | null): void;
 };
+
+function nativeVisible(props: Props): boolean {
+  return props.visible && !(props.naturalContent != null && props.naturalOpen);
+}
 
 function stateLabel(state: string, exitCode?: number | null): string {
   if (state === 'running') return '运行中';
@@ -45,6 +53,8 @@ function stateLabel(state: string, exitCode?: number | null): string {
 export function TerminalPane(props: Props) {
   const propsRef = useRef(props);
   propsRef.current = props;
+  const naturalShown = props.naturalContent != null && Boolean(props.naturalOpen);
+  const terminalVisible = nativeVisible(props);
   const hostRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -114,7 +124,7 @@ export function TerminalPane(props: Props) {
   ), []);
 
   const updateStdin = useCallback(() => {
-    if (terminalRef.current) terminalRef.current.options.disableStdin = !inputAllowed();
+    if (terminalRef.current) terminalRef.current.options.disableStdin = !nativeVisible(propsRef.current) || !inputAllowed();
   }, [inputAllowed]);
 
   const lockControl = useCallback((message: string) => {
@@ -161,7 +171,7 @@ export function TerminalPane(props: Props) {
     const term = terminalRef.current;
     const lease = leaseRef.current;
     if (!mountedRef.current || !host || !term || !lease || !readyRef.current || gapRef.current || stateRef.current !== 'running' ||
-        !propsRef.current.visible || host.clientWidth < 16 || host.clientHeight < 16) return;
+        !nativeVisible(propsRef.current) || host.clientWidth < 16 || host.clientHeight < 16) return;
     if (resizeRunning.current) {
       resizeAgain.current = true;
       return;
@@ -224,7 +234,7 @@ export function TerminalPane(props: Props) {
       setControlError('');
       updateStdin();
       scheduleResize();
-      if (propsRef.current.focused) terminalRef.current?.focus();
+      if (nativeVisible(propsRef.current) && propsRef.current.focused) terminalRef.current?.focus();
     } catch (error) {
       if (mountedRef.current && generation === controlGeneration.current) {
         setControlError('暂时无法接管，可继续查看终端。请稍后重试。');
@@ -308,7 +318,7 @@ export function TerminalPane(props: Props) {
 
     const poll = async () => {
       if (canceled || gapRef.current) return;
-      let delay = propsRef.current.visible ? 100 : 1000;
+      let delay = nativeVisible(propsRef.current) ? 100 : 1000;
       try {
         const result = await propsRef.current.bridge.read({ terminalId: propsRef.current.terminal.id, offset });
         if (canceled) return;
@@ -383,7 +393,7 @@ export function TerminalPane(props: Props) {
     setState(props.terminal.state);
     setExitCode(props.terminal.exitCode);
     updateStdin();
-  }, [props.terminal.state, props.terminal.exitCode, props.connected, updateStdin]);
+  }, [props.terminal.state, props.terminal.exitCode, props.connected, terminalVisible, updateStdin]);
 
   useEffect(() => {
     if (leaseRef.current && props.terminal.writer && props.terminal.writer !== activeViewerRef.current) {
@@ -392,11 +402,13 @@ export function TerminalPane(props: Props) {
   }, [props.terminal.writer, lockControl]);
 
   useEffect(() => {
-    if (props.visible) {
+    if (terminalVisible) {
       scheduleResize();
       if (props.focused && ready) terminalRef.current?.focus();
+    } else {
+      terminalRef.current?.blur();
     }
-  }, [props.visible, props.focused, props.zoomed, ready, scheduleResize]);
+  }, [terminalVisible, props.focused, props.zoomed, ready, scheduleResize]);
 
   useEffect(() => {
     if (terminalRef.current) terminalRef.current.options.fontSize = fontSize;
@@ -409,11 +421,12 @@ export function TerminalPane(props: Props) {
     <section ref={paneRef} className={`dt-pane${props.focused ? ' is-focused' : ''}${bell ? ' has-bell' : ''}`}
       aria-label={`终端 ${props.number} ${props.terminal.launcher}`} onPointerDown={props.onFocus}
       onPointerUp={event => {
-        if (!terminalRef.current?.getSelection()) return;
+        if (!terminalVisible || !terminalRef.current?.getSelection()) return;
         const bounds = paneRef.current?.getBoundingClientRect();
         if (bounds) setSelectionPosition({left: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - 290)), top: Math.max(46, Math.min(event.clientY - bounds.top + 8, bounds.height - 90))});
       }}
       onFocusCapture={props.onFocus}>
+      <style>{naturalCss}</style>
       <header className="dt-pane-bar">
         <AgentIcon launcher={props.terminal.launcher} />
         <span className="dt-pane-number">{String(props.number).padStart(2, '0')}</span>
@@ -442,6 +455,12 @@ export function TerminalPane(props: Props) {
         <button className="dt-icon-button dt-close" onClick={() => setConfirmClose(true)} disabled={(!owned && !settled) || closing || claiming}
           title={settled ? '移除已结束的任务' : owned ? '结束任务' : '接管后可结束任务'} aria-label={`结束终端 ${props.number} 的任务`}>×</button>
       </header>
+      {props.naturalContent != null && <div className="dt-pane-modes" role="group" aria-label={`终端 ${props.number} 视图`}>
+        <button type="button" className={naturalShown ? 'is-active' : ''} aria-pressed={naturalShown}
+          disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(true)}>AI 任务</button>
+        <button type="button" className={!naturalShown ? 'is-active' : ''} aria-pressed={!naturalShown}
+          disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(false)}>终端</button>
+      </div>}
       {confirmClose && <div className="dt-pane-confirm" role="alertdialog" aria-label="确认结束任务">
         <p>{settled ? '移除这个已结束的任务？' : '结束这个任务？当前运行会停止。'}</p>
         <div>
@@ -450,13 +469,18 @@ export function TerminalPane(props: Props) {
             disabled={(!owned && !settled) || closing || claiming}>{settled ? '移除任务' : '结束任务'}</button>
         </div>
       </div>}
+      {naturalShown && props.connected && !readError && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
+      <div className="dt-pane-natural" style={{ display: naturalShown ? 'flex' : 'none' }} aria-hidden={!naturalShown}>
+        {props.naturalContent}
+      </div>
+      <div className="dt-pane-native" style={{ display: naturalShown ? 'none' : 'flex' }} aria-hidden={naturalShown}>
       <div className="dt-terminal-scroll"><div className="dt-terminal-host" ref={hostRef} /></div>
       {props.terminal.launcher === 'shell' && <ShellCommandHistory bridge={props.bridge} terminalId={props.terminal.id}
-        connected={props.connected && !readError} visible={props.visible} onExplain={text => props.onSelectionAction?.('explain', text)}/>}
+        connected={props.connected && !readError} visible={terminalVisible} onExplain={text => props.onSelectionAction?.('explain', text)}/>}
       {selectionOpen && selectionText && props.focused && props.onSelectionAction && <div className="dt-selection-actions" role="toolbar" aria-label="对选中的终端内容使用 AI" style={selectionPosition}
         onPointerDown={event => event.preventDefault()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setSelectionOpen(false); }}>
         <span>终端 {String(props.number).padStart(2, '0')} · 已选 {selectionText.length} 字符</span>
-        <div>{([['explain', '解释'], ['fix', '建议修复'], ['handoff', '交给 Agent']] as const).map(([action, label]) => <button key={action} onClick={() => {
+        <div>{([['execute', '直接处理'], ['explain', '解释'], ['fix', '建议修复'], ['handoff', '交给 Agent']] as const).map(([action, label]) => <button key={action} onClick={() => {
           props.onSelectionAction?.(action, selectionText); setSelectionOpen(false);
         }}>{label}</button>)}<button aria-label="收起选区操作" onClick={() => setSelectionOpen(false)}>×</button></div>
       </div>}
@@ -491,6 +515,7 @@ export function TerminalPane(props: Props) {
           title="取得此终端的人工输入控制权">{claiming ? '接管中…' : controlError ? '重新接管' : '接管输入'}</button>}
         <button className="dt-interrupt" disabled={!writable} onClick={() => send('\u0003')} title="向此终端发送 Ctrl-C">Ctrl-C</button>
       </footer>
+      </div>
     </section>
   );
 }

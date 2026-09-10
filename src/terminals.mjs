@@ -10,6 +10,7 @@ import { TerminalHandoffs } from './handoffs.mjs'
 import { prepareShellIntegration } from './shell-integration.mjs'
 import { CommandJournal } from './command-journal.mjs'
 import { AgentReadiness, readinessSnapshot } from './agent-readiness.mjs'
+import { NativeRuns } from './terminal-runs.mjs'
 
 const OUTPUT_BYTES = 8 * 1024 * 1024
 const READ_CHARS = 64 * 1024
@@ -59,7 +60,7 @@ const launchers = {
 
 /** Raw PTYs never enter DSH's conversation log or model context. */
 export class NativeTerminals {
-  constructor(ctx, effectiveMode, ptyCompatibility = localPtyCompatibility) {
+  constructor(ctx, effectiveMode, ptyCompatibility = localPtyCompatibility, childRuntime = {}) {
     this.ctx = ctx
     this.effectiveMode = effectiveMode
     this.ptyCompatibility = ptyCompatibility
@@ -68,6 +69,7 @@ export class NativeTerminals {
     this.independentScopes = new IndependentScopes(this)
     this.handoffs = new TerminalHandoffs(this)
     this.agentReadiness = new AgentReadiness(this)
+    this.nativeRuns = new NativeRuns(this, childRuntime)
   }
 
   current(owner) {
@@ -85,9 +87,15 @@ export class NativeTerminals {
     state.detachers.push(owner.ctx.on('internal/dispatch', (_mode, eventName, args) => {
       if (eventName !== 'session/event') return
       const [session, event] = args
-      if (session !== owner.session || event.type !== 'sandbox/mode') return
+      if (session !== owner.session) return
+      if (this.nativeRuns.hasActive(owner) && ['permission/preset', 'approval/policy'].includes(event.type)) {
+        const previous = session.events.findLast(item => item.type === event.type)?.data
+        const key = event.type === 'permission/preset' ? 'preset' : 'policy'
+        if (previous?.[key] !== event.data?.[key]) throw new Error('执行会话仍在运行或保留后台资源，请先停止执行再切换权限。')
+      }
+      if (event.type !== 'sandbox/mode') return
       const current = this.effectiveMode(session.events) ?? this.ctx.sandboxPolicy.defaultMode
-      if (event.data.mode !== current && ([...state.entries.values()].some(entry => !entry.settled) || this.handoffs.hasActive(owner) || this.agentReadiness.hasActive(owner))) {
+      if (event.data.mode !== current && ([...state.entries.values()].some(entry => !entry.settled) || this.handoffs.hasActive(owner) || this.agentReadiness.hasActive(owner) || this.nativeRuns.hasActive(owner))) {
         throw new Error('原生终端仍在创建、运行或清理；请先关闭终端再切换 sandbox 模式')
       }
     }, { global: true }))
@@ -130,6 +138,9 @@ export class NativeTerminals {
   async handoffAccept(owner, request, signal) { return this.handoffs.accept(owner, requests.handoffAccept.parse(request), signal) }
   async handoffRework(owner, request, signal) { return this.handoffs.rework(owner, requests.handoffRework.parse(request), signal) }
   async agentCheck(owner, request, signal) { return this.agentReadiness.check(owner, requests.agentCheck.parse(request).launcher, signal) }
+  async runState(owner, request, signal) { return this.nativeRuns.state(owner, requests.runState.parse(request), signal) }
+  async runSend(owner, request, signal) { return this.nativeRuns.send(owner, requests.runSend.parse(request), signal) }
+  async runStop(owner, request, signal) { return this.nativeRuns.stop(owner, requests.runStop.parse(request), signal) }
 
   async inventory(owner, request, signal) {
     requests.inventory.parse(request)
@@ -428,7 +439,9 @@ export class NativeTerminals {
     signal?.throwIfAborted()
     const entry = this.entry(owner, input.terminalId)
     if (!entry.settled && (!entry.lease || entry.lease !== input.lease)) throw new Error('输入控制权已失效，请重新接管')
-    await this.settle(entry)
+    const results = await Promise.allSettled([this.nativeRuns.disposeTerminal(owner, entry.id), this.settle(entry)])
+    const rejected = results.find(result => result.status === 'rejected')
+    if (rejected) throw rejected.reason
     entry.dismissed = true
     entry.data = []
     entry.bytes = 0
@@ -442,11 +455,13 @@ export class NativeTerminals {
     state.disposed = true
     for (const entry of state.entries.values()) entry.controller.abort(new Error('DSH owner disposed'))
     state.disposal = (async () => {
-      await this.agentReadiness.disposeOwner(owner)
-      await this.handoffs.disposeOwner(owner)
-      // Allocation promises must settle before final process cleanup, including late handles.
-      await Promise.allSettled([...state.opens.values()].map(item => item.result))
-      const outcomes = await Promise.allSettled([...state.entries.values()].map(entry => this.settle(entry)))
+      // Every cleanup is attempted even when another subsystem fails.
+      const outcomes = await Promise.allSettled([this.agentReadiness.disposeOwner(owner), this.handoffs.disposeOwner(owner), this.nativeRuns.disposeOwner(owner), (async () => {
+        // Allocation promises must settle before final cleanup, including late handles.
+        await Promise.allSettled([...state.opens.values()].map(item => item.result))
+        const results = await Promise.allSettled([...state.entries.values()].map(entry => this.settle(entry)))
+        if (results.some(result => result.status === 'rejected')) throw new Error('原生终端清理失败')
+      })()])
       if (outcomes.some(result => result.status === 'rejected')) throw new Error('部分原生终端清理失败')
       this.owners.delete(owner)
     })()
@@ -464,10 +479,10 @@ export class NativeTerminals {
   async shutdown() {
     // Stop allocations first, then drain PTYs while their DSH owners still
     // exist. Dispose only the dedicated agent handles this plugin created.
-    await this.independentScopes.quiesce()
+    await Promise.all([this.independentScopes.quiesce(), this.nativeRuns.quiesce()])
     const states = [...this.owners]
     const results = await Promise.allSettled(states.map(([owner, state]) => this.disposeOwner(owner, state)))
-    const independent = await Promise.allSettled([this.independentScopes.stop(), this.handoffs.close()])
+    const independent = await Promise.allSettled([this.independentScopes.stop(), this.handoffs.close(), this.nativeRuns.close()])
     const detached = await Promise.allSettled(states.flatMap(([, state]) => state.detachers.map(detach => Promise.resolve().then(() => detach?.()))))
     const errors = [...independent, ...results, ...detached].filter(result => result.status === 'rejected').map(result => result.reason)
     if (errors.length) throw new AggregateError(errors, '原生终端停用时有资源未完成清理')

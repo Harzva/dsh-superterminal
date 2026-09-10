@@ -61,7 +61,18 @@ export interface HandoffInput {
 export interface HandoffAcceptInput { taskId: string; requestId: string; notes?: string }
 export interface HandoffReworkInput { taskId: string; requestId: string; issues: string; targetLauncher?: string; returnToConversation?: boolean }
 
+export interface NativeTaskState {
+  terminalId: string; sessionId?: string;
+  status: 'idle' | 'running' | 'stopping' | 'failed' | 'completed';
+  canStop?: boolean;
+  messages: {id: string; role: 'user' | 'assistant' | 'tool'; text: string; title?: string; status?: 'queued' | 'pending' | 'running' | 'completed' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'}[];
+  model?: string; permission?: string; error?: string; acceptedRequestIds?: string[];
+}
+export interface NativeTaskInput { terminalId: string; requestId: string; prompt: string; excerpt?: string }
 export interface TerminalBridge {
+  runState(input: {terminalId: string}): Promise<NativeTaskState>;
+  runSend(input: NativeTaskInput): Promise<NativeTaskState>;
+  runStop(input: {terminalId: string}): Promise<NativeTaskState>;
   handoffList(): Promise<{tasks: HandoffTask[]; targets: HandoffTarget[]}>;
   handoffStart(input: HandoffInput): Promise<HandoffTask | {rejected: true; message: string}>;
   handoffCancel(input: {taskId: string}): Promise<HandoffTask>;

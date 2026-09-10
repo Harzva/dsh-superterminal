@@ -5,6 +5,7 @@ import { AgentIcon } from './agent-icon';
 import { assistantMemory, rememberedTerminalDrafts } from './assistant-memory';
 import type { AssistantSeed } from './assistant-memory';
 import { TerminalPane } from './terminal-pane';
+import { NativeTerminalTask } from './native-terminal-task';
 import { SupervisorPanel } from './supervisor-panel';
 import { HandoffPanel, HandoffSummary, useHandoffs } from './handoff-panel';
 import { layoutGeometry, leafSlots, neighborSlot, pointerRatio, presetLayout, removeSlot, resizeSplit, splitSlot } from './layout.mjs';
@@ -12,6 +13,7 @@ import type { LayoutPreset, LayoutTree, Rect, Separator } from './layout.mjs';
 import type { TerminalBridge, TerminalLauncher, TerminalSummary } from './types';
 import workspaceCss from './terminal-workspace.css';
 import handoffCss from './handoff.css';
+import runCss from './terminal-run-panel.css';
 import xtermCss from '@xterm/xterm/css/xterm.css';
 
 export type TerminalWorkspaceProps = { bridge: TerminalBridge; sessionId: string; active?: boolean; compact?: boolean; contextLabel?: string; conversationTitle?: string; onShowConversation?(): void };
@@ -51,6 +53,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ pointerId: number; separatorId: string } | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  const [naturalViews, setNaturalViews] = useState<Record<string, boolean>>({});
   const revealSlotRef = useRef<number | null>(null);
   const [zoomed, setZoomed] = useState<string | null>(null);
   const [autoClaimIds, setAutoClaimIds] = useState<Set<string>>(() => new Set());
@@ -227,14 +230,17 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     setHandoffOpenAt(previous => ({section, request: previous.request + 1}));
     setAuxiliary('handoff');
   };
-  const openSelectionAction = (index: number, action: 'explain' | 'fix' | 'handoff', text: string) => {
+  const openSelectionAction = (index: number, action: 'explain' | 'fix' | 'handoff' | 'execute', text: string) => {
     const terminal = slots[index];
     if (!terminal || !text.trim()) return;
     showSlot(index);
     const captured = text.slice(0, 4000);
     setExcerpt({terminalId: terminal.id, text: captured});
     assistantMemory(sessionId, terminal.id).update({excerpt: captured, share: true});
-    if (action === 'handoff') {
+    if (action === 'execute') {
+      assistantMemory(sessionId, terminal.id).update({runDraft: '请分析这段报错，检查当前项目，完成修复并验证结果。', runExcerpt: captured, runError: ''});
+      setNaturalViews(previous => ({...previous, [terminal.id]: true})); setAuxiliary(null);
+    } else if (action === 'handoff') {
       setHandoffSource({id: terminal.id, launcher: terminal.launcher, title: records[index]?.title});
       setHandoffSeed({id: crypto.randomUUID(), sessionId, sourceTerminalId: terminal.id, prompt: '请根据附上的终端内容，完成下一步任务，并给出结果和验证证据。', excerpt: captured});
       setHandoffOpenAt(previous => ({section: 'form', request: previous.request + 1}));
@@ -305,7 +311,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     const free = slots.findIndex((item,i) => !item && !opening[i] && !records[i]);
     const fallback = free >= 0 ? free : slots.findIndex((item,i) => !item && !opening[i]);
     if (fallback < 0) {setActionError('已打开 12 个终端，请先结束一个任务。'); return;}
-    showSlot(fallback); setAuxiliary('agents');
+    showSlot(fallback); setAuxiliary(null); void open(fallback, 'shell');
   };
   const hideTerminal = (index:number) => {
     setLayout(previous => removeSlot(previous,index)); setPreset('custom'); setZoomed(null);
@@ -386,13 +392,14 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     <div className={`dsh-terminal-workspace${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown}>
       <style>{workspaceCss}</style>
       <style>{handoffCss}</style>
+      <style>{runCss}</style>
       <style>{xtermCss}</style>
       <div className="dt-workspace-heading" ref={headingRef}><header className="dt-workspace-bar">
         <div className="dt-brand"><span className="dt-brand-mark">&gt;_</span><strong>DSH SuperTerminal</strong><span className="dt-brand-subtitle">WORKSPACE</span></div>
         <span className="dt-toolbar-spacer" />
         <button className="dt-toolbar-button dt-new-terminal" onClick={newTerminal}>{compact ? '＋ 终端' : '＋ 新建终端'}</button>
         <button className="dt-toolbar-button" aria-pressed={showManager} onClick={() => setAuxiliary(value => value === 'agents' ? null : 'agents')}>{compact ? 'Agents' : '智能体管理'}</button>
-        <button className="dt-toolbar-button" aria-pressed={showSmart} onClick={() => setAuxiliary(value => value === 'assistant' ? null : 'assistant')}>{compact ? '✦ AI' : '✦ 智能建议'}</button>
+        <button className="dt-toolbar-button" aria-pressed={showSmart} onClick={() => setAuxiliary(value => value === 'assistant' ? null : 'assistant')}>{compact ? '解释' : '解释与建议'}</button>
         <button className="dt-toolbar-button dt-handoff-entry" aria-expanded={showHandoff} onClick={() => openHandoff()}>{compact ? '↗ 协作' : '↗ 交给 Agent'}</button>
         <button className="dt-toolbar-button" aria-expanded={showSupervisor} onClick={() => setAuxiliary(value => value === 'supervisor' ? null : 'supervisor')}>{compact ? '监督' : 'Supervisor'}</button>
         <span className="dt-running-count"><i />{running} 运行 · {terminals.length} 终端</span>
@@ -448,6 +455,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         {slots.map((terminal, index) => {
           const rect = geometry.panes[index];
           const visible = Boolean(rect);
+          const naturalOpen = terminal ? (naturalViews[terminal.id] ?? terminal.launcher === 'shell') : false;
           const style: React.CSSProperties = {
             display: visible ? undefined : 'none',
             left: rect?.x ?? 0, top: rect?.y ?? 0, width: rect?.width ?? 0, height: rect?.height ?? 0,
@@ -455,6 +463,11 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           return <div className="dt-cell" key={terminal?.id ?? `empty-${index}`} style={style} aria-hidden={!visible}>
             {terminal ? <PaneBoundary><TerminalPane
               terminal={terminal} bridge={bridge} viewerId={viewerId} number={index + 1} connected={!listError}
+              naturalOpen={naturalOpen} onNaturalToggle={value => {setNaturalViews(previous => ({...previous, [terminal.id]: value})); if (value) setAuxiliary(null);}}
+              naturalContent={<NativeTerminalTask bridge={bridge} sessionId={sessionId}
+                target={{id: terminal.id, launcher: terminal.launcher, title: records[index]?.title, number: index + 1}}
+                active={active && visible && naturalOpen} connected={!listError}
+                onOpenTerminal={() => setNaturalViews(previous => ({...previous, [terminal.id]: false}))}/>}
               focused={focused === terminal.id} visible={visible && active} zoomed={zoomed === terminal.id}
               autoClaim={autoClaimIds.has(terminal.id)} onFocus={() => { if (!visible || !active) return; setFocused(terminal.id); setSelectedSlot(index); }}
               onZoom={() => { setSelectedSlot(index); setFocused(terminal.id); setZoomed(previous => previous === terminal.id ? null : terminal.id); }}
@@ -479,7 +492,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
               {loaded && records[index] && <div className="dt-restore-card"><strong>{records[index]!.title || records[index]!.launcher}</strong><p>已保留任务名称与布局。重新启动将打开一个新终端。</p><button disabled={Boolean(opening[index])||Boolean(listError)} onClick={()=>{void open(index,records[index]!.launcher)}}>重新启动</button><button onClick={()=>setRecords(previous=>previous.map((item,i)=>i===index?null:item))}>移除记录</button></div>}
               {!(loaded && records[index]) && <><span className="dt-empty-prompt">&gt;_</span>
               <strong>{opening[index] === 'pending' ? '正在启动…' : opening[index] === 'uncertain' ? '等待确认启动结果' : '在这里，开始工作。'}</strong>
-              <span className="dt-empty-description">选择智能体或 Shell 开始工作</span>
+              <span className="dt-empty-description">用自然语言处理任务，或打开你的智能体</span>
+              <button className="dt-natural-start" disabled={Boolean(opening[index]) || loading || Boolean(listError)} onClick={() => {void open(index, 'shell');}}>✦ 打开 AI 终端</button>
               <div className="dt-launchers">{launchers.filter(item => ['shell','codex','claude','kimi'].includes(item.id)).map(launcher => <button key={launcher.id}
                 disabled={!launcher.available || Boolean(opening[index]) || loading || Boolean(listError)}
                 title={launcher.available ? `启动 ${launcher.label}` : `${launcher.label} 尚未安装或不可用`}

@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto'
 
 const EVENT = 'dsh-terminal/independent-scope'
 const MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
-const identity = policy => `session-side-terminal-${createHash('sha256').update(JSON.stringify([policy.workspaceRoot, policy.mode])).digest('hex').slice(0, 32)}`
+const identity = policy => `session-side-terminal-${createHash('sha256').update(JSON.stringify(policy.presetId === null
+  ? [policy.workspaceRoot, policy.mode] : [2, policy.workspaceRoot, policy.mode, policy.presetId])).digest('hex').slice(0, 32)}`
 
 /** Workspace-scoped, real DSH owners. Never fork or copy a conversation log. */
 export class IndependentScopes {
@@ -17,23 +18,37 @@ export class IndependentScopes {
     this.terminals.current(owner)
     const policy = this.terminals.ctx.sandboxPolicy.resolve({ session: owner.session })
     if (!MODES.has(policy.mode) || typeof policy.workspaceRoot !== 'string' || !policy.workspaceRoot) throw new Error('无法确认工作区权限，请重新打开当前对话')
-    return { workspaceRoot: policy.workspaceRoot, mode: policy.mode }
+    return { workspaceRoot: policy.workspaceRoot, mode: policy.mode, presetId: this.composition(owner).presetId }
+  }
+
+  composition(agent) {
+    const presets = agent.ctx?.get?.('agentPresets') ?? this.terminals.ctx.get?.('agentPresets')
+    if (!presets) return { presets: undefined, presetId: null }
+    if (!agent.ctx || typeof presets.composedPreset !== 'function' || typeof presets.composeFrom !== 'function') {
+      throw new Error('当前对话的智能体配置暂不可用，请先使用绑定对话的终端')
+    }
+    const presetId = presets.composedPreset(agent.ctx)
+    if (typeof presetId !== 'string' || !presetId.trim() || presetId.length > 256) {
+      throw new Error('当前对话尚未加载智能体配置，请先选择智能体，再打开独立工作台')
+    }
+    return { presets, presetId }
   }
 
   validate(session, policy) {
     const marker = session.events[0]
     const actual = this.terminals.ctx.sandboxPolicy.resolve({ session })
     if (session.id !== identity(policy) || session.header.cwd !== policy.workspaceRoot || marker?.type !== EVENT ||
-      marker.data?.version !== 1 || marker.data?.workspaceRoot !== policy.workspaceRoot || marker.data?.mode !== policy.mode ||
+      marker.data?.version !== (policy.presetId === null ? 1 : 2) || marker.data?.workspaceRoot !== policy.workspaceRoot || marker.data?.mode !== policy.mode ||
+      (marker.data?.presetId ?? null) !== policy.presetId || (session.header.agentPreset ?? null) !== policy.presetId ||
       actual.workspaceRoot !== policy.workspaceRoot || actual.mode !== policy.mode) {
-      throw new Error('这个独立终端不属于当前工作区或权限已变化，请从原工作区重新连接')
+      throw new Error('这个独立终端不属于当前工作区、权限已变化，或智能体配置不同，请从原工作区重新连接')
     }
   }
 
   async resolve(source, request, signal) {
     const policy = this.policy(source)
     const sessionId = identity(policy)
-    if (request.sessionId && request.sessionId !== sessionId) throw new Error('请在原工作区的对话中重新连接这个独立终端')
+    if (request.sessionId && request.sessionId !== sessionId) throw new Error('这个独立终端属于旧版或其他工作区、智能体配置。请回到原工作区，重新选择独立工作台；原终端不会迁移')
     signal?.throwIfAborted()
     let pending = this.pending.get(sessionId)
     if (!pending) {
@@ -44,7 +59,7 @@ export class IndependentScopes {
     const result = await pending
     signal?.throwIfAborted()
     const current = this.policy(source)
-    if (identity(current) !== sessionId) throw new Error('当前工作区权限已变化，请重新连接独立终端')
+    if (identity(current) !== sessionId) throw new Error('当前工作区权限或智能体配置已变化，请重新连接独立终端')
     return result
   }
 
@@ -56,6 +71,7 @@ export class IndependentScopes {
     const live = ctx.agents.get(sessionId)
     if (live) {
       this.validate(live.session, policy)
+      if (this.composition(live).presetId !== policy.presetId) throw new Error('独立工作台的智能体配置已变化，请重新选择独立工作台')
       this.terminals.owned(live)
       return { sessionId, cwd: policy.workspaceRoot, mode: policy.mode, restored: true }
     }
@@ -64,24 +80,35 @@ export class IndependentScopes {
     const headers = await persistence.list(signal)
     signal.throwIfAborted()
     const restoring = headers.some(header => header.id === sessionId)
-    const check = agent => {
+    const check = (agent, composed = true) => {
       signal.throwIfAborted()
-      if (identity(this.policy(source)) !== sessionId) throw new Error('当前工作区权限已变化，请重试')
+      if (identity(this.policy(source)) !== sessionId) throw new Error('当前工作区权限或智能体配置已变化，请重试')
       this.validate(agent.session, policy)
+      if (composed && this.composition(agent).presetId !== policy.presetId) throw new Error('独立工作台的智能体配置已变化，请重新选择独立工作台')
     }
     const options = {
       signal,
-      // Only route scalars are inherited; no user prompt, inbox, tools, or history.
+      // Share the source's preset composition, never its conversation or inbox.
       agentOptions: Object.fromEntries(['provider', 'model', 'maxTokens'].flatMap(key => source.options?.[key] === undefined ? [] : [[key, source.options[key]]])),
-      setup: agentCtx => { check(agentCtx.agent); return { commit: () => check(agentCtx.agent) } },
+      setup: agentCtx => {
+        check(agentCtx.agent, false)
+        if (policy.presetId !== null) {
+          const { presets } = this.composition(source)
+          if (presets.composeFrom(agentCtx, source.ctx) !== policy.presetId) throw new Error('无法沿用当前对话的智能体配置，请重试')
+        }
+        check(agentCtx.agent)
+        return { commit: () => check(agentCtx.agent) }
+      },
     }
     const time = Date.now()
     const handle = restoring
       ? await ctx.agents.resume({ ...options, resumeSessionId: sessionId })
-      : await ctx.agents.create({ ...options, sessionId, meta: { cwd: policy.workspaceRoot }, seed: [
+      : await ctx.agents.create({ ...options, sessionId, meta: { cwd: policy.workspaceRoot,
+        ...(policy.presetId === null ? {} : { agentPreset: policy.presetId }) }, seed: [
         // Other plugins may ignore this informational marker; our resolver fails
         // closed if it is absent. The actual policy remains a native DSH event.
-        { seq: 0, time, type: EVENT, ignorable: true, data: { version: 1, workspaceRoot: policy.workspaceRoot, mode: policy.mode } },
+        { seq: 0, time, type: EVENT, ignorable: true, data: { version: policy.presetId === null ? 1 : 2,
+          workspaceRoot: policy.workspaceRoot, mode: policy.mode, ...(policy.presetId === null ? {} : { presetId: policy.presetId }) } },
         { seq: 1, time, type: 'sandbox/mode', data: { mode: policy.mode } },
       ] })
     try {
