@@ -22,10 +22,10 @@
 
 ## 安装
 
-当前版本 **0.1.0-alpha.9**，新增 **Terminal Group 终端讨论组**。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
+当前版本 **0.1.0-alpha.10**，改进 **Terminal Group 的连续讨论与长回复读取**。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.9/harzva-dsh-terminal-0.1.0-alpha.9.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.10/harzva-dsh-terminal-0.1.0-alpha.10.tgz
 ```
 
 首次运行：
