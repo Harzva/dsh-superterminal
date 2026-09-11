@@ -77,7 +77,7 @@ export function NativeTerminalTask({bridge, sessionId, target, active, connected
     finally {memory.update({runBusy: false});}
   };
 
-  return <NativeRunPanel target={target} state={{...(value.runState ?? idle), error: value.runError || value.runState?.error}}
+  return <NativeRunPanel readResult={bridge.runResult} target={target} state={{...(value.runState ?? idle), error: value.runError || value.runState?.error}}
     draft={value.runDraft ?? ''} onDraftChange={runDraft => memory.update(current => ({runDraft, runError: current.runPending ? current.runError : ''}))}
     onSend={send} onStop={stop} busy={value.runBusy} connected={connected && available} showRecoveryNotice={connected}
     pendingSend={Boolean(value.runPending)} onRetrySend={() => {const pending = memory.getSnapshot().runPending; if (pending) return send(pending.prompt);}}

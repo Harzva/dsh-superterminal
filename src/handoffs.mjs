@@ -2,11 +2,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import { join } from 'node:path'
 import { CLI_STATE_BOOTSTRAP } from './cli-state.mjs'
-import { HandoffJournal } from './handoff-journal.mjs'
+import { HandoffJournal, handoffRetentionLimits, handoffRetentionKind, handoffRetentionError } from './handoff-journal.mjs'
 import { returnHandoffResult } from './handoff-return.mjs'
 
 const SUPPORTED = new Set(['pi', 'piagent', 'codex'])
-const MAX_TASKS = 32
 const MAX_CONCURRENT = 2
 const TIMEOUT_MS = 10 * 60 * 1000
 const CODEX_LOGIN_TIMEOUT_MS = 8000
@@ -15,7 +14,7 @@ const MAX_LINE_BYTES = 1024 * 1024
 const MAX_RESULT_CHARS = 16000
 const safe = text => {
   const value = String(text ?? '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-  return value.length <= MAX_RESULT_CHARS ? value : value.slice(0, MAX_RESULT_CHARS - 40) + '\n\n（结果较长，以上仅保留前半部分。）'
+  return value.length <= MAX_RESULT_CHARS ? value : value.slice(0, MAX_RESULT_CHARS - 40) + '\n\n（结果较长，以上仅保留开头部分。）'
 }
 const SAVE_WARNING = '这条记录暂未保存，正在重试；请保持当前对话打开，不会自动重跑任务。'
 const requestFingerprint = (input, relation) => createHash('sha256').update(JSON.stringify({ ...input, returnToConversation: input.returnToConversation === true,
@@ -47,10 +46,15 @@ function failureDiagnostic(launcher, text) {
 /** Decode the CLI's explicit protocol. Screen text and tool output never prove completion. */
 export class HandoffProtocol {
   constructor(launcher) { this.launcher = launcher; this.result = ''; this.complete = false; this.failed = false; this.diagnostic = '' }
+  setResult(value) {
+    const text = String(value ?? '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    this.totalResultLength = text.length; this.resultTruncated = text.length > MAX_RESULT_CHARS
+    this.result = safe(text)
+  }
   accept(event) {
     if (!event || typeof event !== 'object') return
     if (this.launcher === 'codex') {
-      if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') this.result = safe(event.item.text)
+      if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') this.setResult(event.item.text)
       if (event.type === 'turn.completed') this.complete = true
       if (event.type === 'turn.failed' || event.type === 'error') {
         this.failed = true
@@ -59,7 +63,7 @@ export class HandoffProtocol {
     } else {
       if (event.type === 'agent_start' || event.type === 'auto_retry_start') {
         this.complete = false
-        this.result = ''
+        this.setResult('')
       }
       if (event.type === 'message_end' && event.message?.role === 'assistant') {
         const message = event.message
@@ -67,7 +71,7 @@ export class HandoffProtocol {
         // final assistant reply determines whether the completed run failed.
         this.failed = ['error', 'aborted'].includes(message.stopReason)
         this.diagnostic = this.failed ? failureDiagnostic(this.launcher, message.errorMessage) : ''
-        this.result = safe(Array.isArray(message.content) ? message.content.filter(item => item?.type === 'text' && typeof item.text === 'string').map(item => item.text).join('\n') : '')
+        this.setResult(Array.isArray(message.content) ? message.content.filter(item => item?.type === 'text' && typeof item.text === 'string').map(item => item.text).join('\n') : '')
       }
       if (event.type === 'agent_end') this.complete = event.willRetry !== true
     }
@@ -175,7 +179,9 @@ export class TerminalHandoffs {
     await Promise.all([...state.reviewCandidates.keys()].map(id => this.persistReview(owner, state, id, signal).catch(() => {})))
     const targets = await this.targets(signal)
     this.terminals.current(owner); signal?.throwIfAborted()
-    return { tasks: [...state.records.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, MAX_TASKS).map(task => view(task, state.dirty, state.reviewCandidates)), targets }
+    // Both independently bounded classes remain addressable. Truncating the
+    // combined list would hide old execution tasks and in-flight group replies.
+    return { tasks: [...state.records.values()].sort((a, b) => b.createdAt - a.createdAt).map(task => view(task, state.dirty, state.reviewCandidates)), targets }
   }
 
   async persist(owner, state, task, signal) {
@@ -235,7 +241,12 @@ export class TerminalHandoffs {
       this.terminals.current(owner)
       return reject('来源终端已不可用，请重新选择当前会话中的终端')
     }
-    if (state.records.size >= MAX_TASKS) return reject('当前会话已达到 32 条交接记录上限，请在新对话中继续')
+    // Public handoffStart never accepts groupPurpose and sets linked tasks to
+    // execution. Only the host's TerminalGroups adapter supplies discussion.
+    if (input.groupPurpose === 'discussion' && (!input.sourceGroupId || relation || input.returnToConversation)) return reject('讨论发言必须来自讨论组，且只返回讨论组')
+    const retentionKind = relation ? 'execution' : handoffRetentionKind(input)
+    const retainedCount = [...state.records.values()].filter(task => handoffRetentionKind(task) === retentionKind).length
+    if (retainedCount >= handoffRetentionLimits[retentionKind]) return reject(handoffRetentionError(retentionKind))
     if (this.activeCount >= MAX_CONCURRENT) return reject('已有 2 项交接正在运行，请等待其中一项返回')
     const policy = this.ctx.sandboxPolicy.resolve({ session: owner.session })
     if (!['read-only', 'workspace-write', 'danger-full-access'].includes(policy.mode) || !policy.workspaceRoot) return reject('无法确认当前工作区权限')
@@ -399,6 +410,7 @@ export class TerminalHandoffs {
       signal.throwIfAborted(); this.terminals.current(owner)
       task.exitCode = outcome.exitCode ?? null
       task.result = protocol.finish(task.exitCode, job.handle.collected?.stderr?.readFrom(0).text)
+      if (protocol.resultTruncated) { task.resultTruncated = true; task.totalResultLength = protocol.totalResultLength }
       task.status = 'succeeded'
     } catch (error) {
       task.status = controller.signal.aborted ? (job.timedOut ? 'failed' : 'cancelled') : 'failed'

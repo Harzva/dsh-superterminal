@@ -1,11 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives';
+import { NativeResultReader } from './native-result-reader';
+import type { ResultPreviewInfo, ReadNativeResult } from './result-types';
 import { AgentIcon } from './agent-icon';
 import css from './terminal-run-panel.css';
 
 export interface NativeRunTarget { id: string; title?: string; launcher: string; number?: number }
 export type NativeRunStatus = 'idle' | 'running' | 'stopping' | 'failed' | 'completed';
-export interface NativeRunMessage {
+export interface NativeRunMessage extends ResultPreviewInfo {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   text: string;
@@ -39,6 +41,7 @@ export interface NativeRunPanelProps {
   sharedExcerpt?: NativeRunExcerpt;
   onClearExcerpt?(): void;
   onOpenTerminal?(terminalId: string): void;
+  readResult?: ReadNativeResult;
 }
 
 const runLabels: Record<NativeRunStatus, string> = {
@@ -51,14 +54,14 @@ const stepLabels = {
 const seedPrompts = ['检查当前项目', '修复选中的报错', '运行测试并分析失败'];
 const markdownCodeLabels = {copyLabel: '复制代码', copiedLabel: '已复制'};
 
-function RunMessage({message}: {message: NativeRunMessage}) {
+function RunMessage({message, readResult}: {message: NativeRunMessage; readResult?: ReadNativeResult}) {
   if (message.role === 'tool') return <details className={`dt-native-step is-${message.status ?? 'unknown'}`}>
     <summary><span className="dt-native-step-icon" aria-hidden="true">{message.status === 'failed' ? '!' : '›_'}</span>
       <span className="dt-native-step-title">{message.title || '工具执行'}</span>
       {message.status && <span className="dt-native-step-status">{stepLabels[message.status]}</span>}
       <span className="dt-native-step-chevron" aria-hidden="true">⌄</span>
     </summary>
-    <div className="dt-native-step-detail"><pre>{message.text || '此步骤没有文本输出。'}</pre></div>
+    <div className="dt-native-step-detail"><pre>{message.text || '此步骤没有文本输出。'}</pre><NativeResultReader result={message}/></div>
   </details>;
   return <article className={`dt-native-message is-${message.role}`}>
     <div className="dt-native-message-label"><span>{message.role === 'user' ? '你' : 'DSH'}</span>{message.title && <strong>{message.title}</strong>}</div>
@@ -66,13 +69,14 @@ function RunMessage({message}: {message: NativeRunMessage}) {
       {message.role === 'assistant' && message.text ? <MarkdownText text={message.text} streaming={message.status === 'running'} codeLabels={markdownCodeLabels}/>
         : message.text || (message.role === 'assistant' ? '等待返回内容…' : '')}
     </div>
+    {message.role === 'assistant' && <NativeResultReader result={message} readResult={readResult}/>}
   </article>;
 }
 
 /** A controlled surface for the parent's real DSH run; mounting never starts work. */
 export function NativeRunPanel({target, state, draft, onDraftChange, onSend, onStop, busy = false, connected = true, showRecoveryNotice = true,
   pendingSend = false, onRetrySend,
-  sharedExcerpt, onClearExcerpt, onOpenTerminal}: NativeRunPanelProps) {
+  sharedExcerpt, onClearExcerpt, onOpenTerminal, readResult}: NativeRunPanelProps) {
   const [action, setAction] = useState<'send' | 'retry' | 'stop' | null>(null);
   const [actionError, setActionError] = useState('');
   const [stopUnconfirmed, setStopUnconfirmed] = useState(false);
@@ -160,7 +164,7 @@ export function NativeRunPanel({target, state, draft, onDraftChange, onSend, onS
       {!state.messages.length && <div className="dt-native-run-empty"><span aria-hidden="true">›_</span><h3>说说你想完成什么</h3><p>把目标告诉 DSH，执行步骤和结果会留在这里。</p>
         <div className="dt-native-run-prompts">{seedPrompts.map(prompt => <button key={prompt} disabled={!target || busy || stopping || Boolean(action)} onClick={() => { onDraftChange(prompt); composerRef.current?.focus(); }}><span>{prompt}</span><span aria-hidden="true">↗</span></button>)}</div>
       </div>}
-      <div className="dt-native-run-timeline">{state.messages.map(message => <RunMessage key={message.id} message={message}/>)}</div>
+      <div className="dt-native-run-timeline">{state.messages.map(message => <RunMessage key={message.id} message={message} readResult={readResult}/>)}</div>
       {running && <div className="dt-native-run-active" role="status"><i aria-hidden="true"/><span>任务执行中{lastMessage?.role === 'tool' && lastMessage.status === 'running' && lastMessage.title ? ` · ${lastMessage.title}` : ''}</span></div>}
       {stopping && <p className="dt-native-run-stopping" role="status">{retryStop ? '停止尚未确认，可以再次尝试。' : '正在等待当前执行停止。'}</p>}
     </div>

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import { previewTextBlocks } from './native-result-text.mjs'
 import { TerminalGroupJournal, groupExcerptSchema } from './terminal-group-journal.mjs'
 
 const id = z.string().min(1).max(128)
@@ -17,9 +18,18 @@ const rejected = message => new Error(`[GROUP_REJECTED] ${message}`)
 const safeFailure = (message, cause) => Object.assign(new Error(message), { groupSafe: true, ...(cause ? { cause } : {}) })
 const cleanError = error => error?.groupSafe || error?.terminalRunSafe ? error.message.replace(/^\[RUN_REJECTED\]\s*/, '') : '这次发言暂未完成，请检查对应任务后重试。'
 const parse = (kind, input) => { const result = schemas[kind].safeParse(input); if (!result.success) throw rejected('请检查讨论组的名称、成员与消息后重试。'); return result.data }
-const publicGroup = (group, dirty, summary = false) => {
+// A terminal outcome becomes observable only when its background job has
+// released admission and its record is durable. Saving runs outside the owner
+// command chain, which stopJob may occupy while waiting for job.done.
+const publicStatus = (group, state) => group.operation && (state.jobs.has(group.id) || state.dirty.has(group.id)) ? 'running' : group.status
+const publicGroup = (group, state, summary = false) => {
+  const dirty = state.dirty.has(group.id)
   const { sourceSessionId, createRequestId, fingerprint, requests, messages, ...value } = group
   const result = structuredClone({ ...value, ...(!summary ? { messages } : {}) })
+  if (result.operation && publicStatus(group, state) !== group.status) {
+    result.status = 'running'; result.operation.status = 'running'
+    if (!dirty) result.operation.error = '讨论已结束，正在保存结果；保存完成后即可继续。'
+  }
   if (dirty && result.operation) result.operation.error = [result.operation.error, '讨论记录尚未确认保存，正在重试；不会自动重复发言。'].filter(Boolean).join('\n').slice(0, 1000)
   return result
 }
@@ -46,7 +56,8 @@ function sharedContext(snapshot, input, members, budget) {
     ['user', 'reply', 'conclusion', 'error'].includes(row.kind) && !(row.kind === 'user' && row.requestId === input.requestId))
   if (!rows.length) return '暂无其他发言'
   const labels = { user: '用户目标', reply: '发言', conclusion: '结论', error: '发言未完成' }
-  const label = ({ row, index }) => `[消息 ${index + 1}｜${row.memberId ? `${headAndTail(row.memberTitle ?? '成员', 80)} / ${row.mode}${row.model ? ` / ${headAndTail(row.model, 64)}` : ''}` : '用户'}${row.round ? `｜第 ${row.round} 轮` : ''}｜${labels[row.kind]}]\n`
+  const resultNotice = row => row.truncated ? `\n[${row.sourceTruncated ? '原始 CLI 结果已截断，仅保留开头；无法在此读取未保存的原文' : '当前内容仅为原文首尾节选'}${row.totalLength ? `；原文 ${row.totalLength} 字符` : ''}${row.resultRef ? '；完整结果可在来源终端按本条回复读取' : ''}；缺失部分不可当作完整证据]` : ''
+  const label = ({ row, index }) => `[消息 ${index + 1}｜${row.memberId ? `${headAndTail(row.memberTitle ?? '成员', 80)} / ${row.mode}${row.model ? ` / ${headAndTail(row.model, 64)}` : ''}` : '用户'}${row.round ? `｜第 ${row.round} 轮` : ''}｜${labels[row.kind]}]${resultNotice(row)}\n`
   const recent = [...rows].reverse(), currentMembers = new Set(members.map(member => member.id)), seen = new Set(), primary = []
   // Each current member's newest actual reply is first-class evidence. Removed
   // members can fill remaining places, but cannot crowd out current replies.
@@ -169,25 +180,25 @@ export class TerminalGroups {
     parse('list', input); const state = await this.state(owner, signal)
     await this.enqueue(state, async () => { for (const groupId of [...state.dirty]) await this.save(owner, state, state.groups.get(groupId), signal).catch(() => {}) })
     const candidates = await this.candidates(owner, signal); this.current(owner); signal?.throwIfAborted()
-    return { groups: [...state.groups.values()].filter(group => !group.archived).sort((a, b) => b.updatedAt - a.updatedAt).map(group => publicGroup(group, state.dirty.has(group.id), true)), candidates }
+    return { groups: [...state.groups.values()].filter(group => !group.archived).sort((a, b) => b.updatedAt - a.updatedAt).map(group => publicGroup(group, state, true)), candidates }
   }
   async read(owner, input, signal) {
     const { groupId } = parse('read', input), state = await this.state(owner, signal)
-    return this.enqueue(state, async () => { const group = this.get(state, groupId); if (state.dirty.has(groupId)) await this.save(owner, state, group, signal).catch(() => {}); return publicGroup(group, state.dirty.has(groupId)) })
+    return this.enqueue(state, async () => { const group = this.get(state, groupId); if (state.dirty.has(groupId)) await this.save(owner, state, group, signal).catch(() => {}); return publicGroup(group, state) })
   }
   async create(owner, input, signal) {
     input = parse('create', input); const state = await this.state(owner, signal), fingerprint = hash(input)
     return this.enqueue(state, async () => {
       this.current(owner); signal?.throwIfAborted()
       const prior = this.replay(state, input.requestId, fingerprint, 'create')
-      if (prior) { if (state.dirty.has(prior.id)) await this.save(owner, state, prior); return publicGroup(prior, state.dirty.has(prior.id)) }
+      if (prior) { if (state.dirty.has(prior.id)) await this.save(owner, state, prior); return publicGroup(prior, state) }
       if (state.groups.size >= 12) throw rejected('当前会话已达到 12 个讨论组的记录上限，请在新会话继续。')
       const validated = this.validateMembers(owner, input.members), now = Date.now()
       const group = { id: randomUUID(), sourceSessionId: owner.id, createRequestId: input.requestId, fingerprint, title: input.title, members: validated,
         createdAt: now, updatedAt: now, status: 'idle', messages: [], requests: [{ id: input.requestId, fingerprint, kind: 'create' }] }
       state.groups.set(group.id, group)
       await this.save(owner, state, group) // Request transport cancellation cannot undo accepted identity.
-      return publicGroup(group)
+      return publicGroup(group, state)
     })
   }
   async update(owner, input, signal) {
@@ -195,11 +206,11 @@ export class TerminalGroups {
     return this.enqueue(state, async () => {
       this.current(owner); signal?.throwIfAborted()
       const prior = this.replay(state, input.requestId, fingerprint, 'update', input.groupId)
-      if (prior) { if (state.dirty.has(prior.id)) await this.save(owner, state, prior); return publicGroup(prior, state.dirty.has(prior.id)) }
+      if (prior) { if (state.dirty.has(prior.id)) await this.save(owner, state, prior); return publicGroup(prior, state) }
       const group = this.get(state, input.groupId); this.idle(state, group)
       const validated = this.validateMembers(owner, input.members, group.members)
       group.title = input.title; group.members = validated; group.requests.push({ id: input.requestId, fingerprint, kind: 'update' })
-      await this.save(owner, state, group); return publicGroup(group)
+      await this.save(owner, state, group); return publicGroup(group, state)
     })
   }
   async send(owner, input, signal) {
@@ -207,7 +218,7 @@ export class TerminalGroups {
     return this.enqueue(state, async () => {
       this.current(owner); signal?.throwIfAborted()
       const prior = this.replay(state, input.requestId, fingerprint, 'send', input.groupId)
-      if (prior) { if (state.dirty.has(prior.id)) await this.save(owner, state, prior); return publicGroup(prior, state.dirty.has(prior.id)) }
+      if (prior) { if (state.dirty.has(prior.id)) await this.save(owner, state, prior); return publicGroup(prior, state) }
       const group = this.get(state, input.groupId); this.idle(state, group)
       if (new Set(input.targets).size !== input.targets.length || input.targets.some(id => !group.members.some(member => member.id === id))) throw rejected('请选择这个讨论组中的成员。')
       if (input.kind === 'conclusion' && (input.targets.length !== 1 || input.rounds !== 1)) throw rejected('请选择一位成员进行一次总结。')
@@ -226,14 +237,14 @@ export class TerminalGroups {
       try { this.current(owner) } catch {
         this.admissions--; state.admitting--
         group.status = 'interrupted'; operation.status = 'interrupted'; operation.error = '会话已关闭，本次未开始发言。'
-        await this.save(owner, state, group); return publicGroup(group)
+        await this.save(owner, state, group); return publicGroup(group, state)
       }
       const job = { group, input, controller: new AbortController(), tasks: new Set(), requestIds: new Set(), members: structuredClone(group.members.filter(member => input.targets.includes(member.id))) }
       state.jobs.set(group.id, job)
       this.admissions--; state.admitting--
       // Background work starts only after the accepted group record is durable.
       job.done = Promise.resolve().then(() => this.run(owner, state, job)).catch(() => {})
-      return publicGroup(group)
+      return publicGroup(group, state)
     })
   }
   append(group, message) {
@@ -266,7 +277,7 @@ export class TerminalGroups {
       if (!['queued', 'running'].includes(result.status)) {
         if (result.savePending) throw safeFailure('发言结果尚未确认保存，请在任务记录中核对。')
         if (result.status !== 'succeeded' || !result.result?.trim()) throw safeFailure(result.error || '这个成员未完整返回本次发言。')
-        return { text: result.result, taskId: task.id } // No invented model: CLI protocol does not prove one.
+        return { text: result.result, taskId: task.id, ...(result.resultTruncated ? { truncated: true, sourceTruncated: true, totalLength: result.totalResultLength } : {}) } // No invented model: CLI protocol does not prove one.
       }
       if (Date.now() >= deadline) throw safeFailure('成员发言等待超时，请在任务记录中核对。')
       await pause(this.pollMs, job.controller.signal)
@@ -305,7 +316,10 @@ export class TerminalGroups {
               ? await this.terminals.nativeRuns.groupTurn(owner, { terminalId: member.terminalId, groupId: group.id, requestId, prompt }, job.controller.signal, { timeoutMs: this.timeoutMs })
               : await this.cliTurn(owner, job, member, requestId, prompt)
             job.controller.signal.throwIfAborted(); this.current(owner)
-            this.append(group, { kind: input.kind === 'conclusion' ? 'conclusion' : 'reply', text: bounded(reply.text, 16000), requestId: input.requestId,
+            const preview = previewTextBlocks([{ type: 'text', text: reply.text }], 16000)
+            const resultInfo = { truncated: !!(reply.truncated || preview.truncated), totalLength: reply.totalLength ?? preview.totalLength,
+              ...(reply.sourceTruncated ? { sourceTruncated: true } : {}), ...(member.mode === 'dsh-ai' && reply.resultRef ? { resultRef: reply.resultRef } : {}) }
+            this.append(group, { kind: input.kind === 'conclusion' ? 'conclusion' : 'reply', ...resultInfo, text: preview.text, requestId: input.requestId,
               memberId: member.id, memberTitle: member.title, terminalId: member.terminalId, launcher: member.launcher, mode: member.mode, ...(reply.model ? { model: reply.model } : {}), round, ...(reply.taskId ? { taskId: reply.taskId } : {}) })
           } catch (error) {
             if (job.controller.signal.aborted) throw error
@@ -333,8 +347,9 @@ export class TerminalGroups {
   hasActive(owner) { const state = this.states.get(owner); return !!(state?.jobs.size || state?.admitting) }
   observation(owner) {
     this.terminals.current(owner)
-    return [...(this.states.get(owner)?.groups.values() ?? [])].filter(group => !group.archived).slice(0, 12).map(group => ({
-      id: group.id, status: group.status, memberCount: group.members.length, updatedAt: group.updatedAt,
+    const state = this.states.get(owner)
+    return [...(state?.groups.values() ?? [])].filter(group => !group.archived).slice(0, 12).map(group => ({
+      id: group.id, status: publicStatus(group, state), memberCount: group.members.length, updatedAt: group.updatedAt,
       ...(group.operation ? { round: group.operation.round, rounds: group.operation.rounds, kind: group.operation.kind,
         ...(group.operation.activeMemberId ? { activeMemberId: group.operation.activeMemberId } : {}) } : {}),
     }))
@@ -352,15 +367,15 @@ export class TerminalGroups {
     return this.enqueue(state, async () => {
       const group = this.get(state, groupId), job = state.jobs.get(groupId)
       if (job) await this.stopJob(owner, state, job)
-      return publicGroup(group, state.dirty.has(groupId))
+      return publicGroup(group, state)
     })
   }
   async archive(owner, input, signal) {
     const { groupId } = parse('read', input), state = await this.state(owner, signal)
     return this.enqueue(state, async () => {
       this.current(owner); signal?.throwIfAborted(); const group = this.get(state, groupId)
-      if (group.archived) { if (state.dirty.has(groupId)) await this.save(owner, state, group); return publicGroup(group, state.dirty.has(groupId)) }
-      this.idle(state, group); group.archived = true; await this.save(owner, state, group); return publicGroup(group)
+      if (group.archived) { if (state.dirty.has(groupId)) await this.save(owner, state, group); return publicGroup(group, state) }
+      this.idle(state, group); group.archived = true; await this.save(owner, state, group); return publicGroup(group, state)
     })
   }
   async disposeTerminal(owner, terminalId) {

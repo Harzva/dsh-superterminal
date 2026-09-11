@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { previewTextBlocks } from '../src/native-result-text.mjs'
 import { TerminalGroups } from '../src/terminal-groups.mjs'
 import { TerminalGroupJournal } from '../src/terminal-group-journal.mjs'
 
@@ -12,6 +13,7 @@ function fixture(options = {}) {
     entries: () => disk.entries(), get: key => disk.get(key), async put(key, value) {
       if (controls.failSave?.(value)) throw Error('PRIVATE_STORAGE_DIAGNOSTIC')
       if (controls.saveGate && value.status === 'running') await controls.saveGate.promise
+      if (controls.finalGate && value.operation && value.status !== 'running') { controls.finalGate.entered.resolve(); await controls.finalGate.release.promise }
       disk.set(key, spec.tables.groups.valueSchema.parse(structuredClone(value)))
     }, } }, async close() {} } } } } }
   const terminals = { ctx, current(value) { if (agents.get(value.id) !== value) throw Error('owner expired') },
@@ -116,7 +118,7 @@ test('failed acceptance never runs; failed result persistence retries storage wi
   f.controls.failSave = null; await f.send(group); assert.equal(f.calls.length, 0)
   f.controls.failSave = row => row.messages.some(message => message.kind === 'reply')
   await f.send(group, { requestId: 'new-send' }); const result = await f.settle(group)
-  assert.equal(f.calls.length, 1); assert.equal(result.status, 'failed'); assert.match(result.operation.error, /保存/)
+  assert.equal(f.calls.length, 1); assert.equal(result.status, 'running'); assert.match(result.operation.error, /保存/)
   f.controls.failSave = null; await f.groups.read(f.owner, { groupId: group.id })
   await f.send(group, { requestId: 'new-send' }); assert.equal(f.calls.length, 1)
   await f.groups.close()
@@ -209,5 +211,89 @@ test('context allocates available space fairly across six latest participants in
   for (let index = 0; index < 6; index++) { assert.ok(prompt.includes(`LATEST_${index}_START`)); assert.ok(prompt.includes(`LATEST_${index}_END`)) }
   for (const marker of ['TARGET_START', 'TARGET_END', 'MATERIAL_START', 'MATERIAL_END']) assert.ok(prompt.includes(marker))
   assert.equal((prompt.match(/第 2 轮/g) ?? []).length, 6)
+  await f.groups.close()
+})
+
+test('native preview provenance and original CLI truncation survive two rounds, conclusion and recovery', async () => {
+  const f = fixture(), group = await f.create('create', ['one', 'pi'])
+  const original = 'NATIVE_START\n' + 'x'.repeat(32000) + '\nFINAL_NATIVE_CORRECTION'
+  const native = f.nativeRuns.groupTurn.bind(f.nativeRuns), cli = f.handoffs.start.bind(f.handoffs)
+  f.nativeRuns.groupTurn = async (...args) => ({ ...await native(...args), ...previewTextBlocks([{ type: 'text', text: original }]),
+    resultRef: { terminalId: args[1].terminalId, messageId: `assistant-${f.calls.length}-1` } })
+  f.handoffs.start = async (...args) => {
+    const task = await cli(...args), stored = f.tasks.get(task.id)
+    Object.assign(stored, { result: 'CLI_START' + 'c'.repeat(15000) + '\n（原始 CLI 结果仅保留开头部分）', resultTruncated: true, totalResultLength: 45000 })
+    return { ...stored }
+  }
+  await f.send(group, { rounds: 2 }); let completed = await f.settle(group)
+  const replies = completed.messages.filter(row => row.kind === 'reply')
+  assert.equal(replies.length, 4)
+  for (const reply of replies) {
+    assert.equal(reply.truncated, true); assert.ok(reply.text.length <= 16000)
+    if (reply.mode === 'dsh-ai') { assert.equal(reply.totalLength, original.length); assert.ok(reply.text.endsWith('FINAL_NATIVE_CORRECTION')); assert.equal(reply.resultRef.terminalId, 'one'); assert.equal(reply.sourceTruncated, undefined) }
+    else { assert.equal(reply.totalLength, 45000); assert.equal(reply.sourceTruncated, true); assert.equal(reply.resultRef, undefined) }
+  }
+  for (const call of f.calls.slice(2)) { assert.match(call.prompt, /首尾节选/); assert.match(call.prompt, /原始 CLI 结果已截断/); assert.match(call.prompt, /缺失部分不可当作完整证据/); assert.match(call.prompt, /FINAL_NATIVE_CORRECTION/); assert.ok(call.prompt.length <= 8000) }
+  await f.send(group, { requestId: 'conclude', kind: 'conclusion', targets: [group.members[0].id] }); completed = await f.settle(group)
+  const conclusion = completed.messages.at(-1); assert.equal(conclusion.kind, 'conclusion'); assert.equal(conclusion.truncated, true); assert.equal(conclusion.totalLength, original.length)
+  assert.match(f.calls.at(-1).prompt, /原始 CLI 结果已截断/); assert.ok(f.calls.at(-1).prompt.length <= 8000)
+  const recovered = new TerminalGroups(f.terminals)
+  const restored = await recovered.read(f.owner, { groupId: group.id }); assert.deepEqual(restored.messages, completed.messages)
+  await recovered.close(); await f.groups.close()
+})
+
+test('six truncated replies leave room for source warnings and latest tails under the sharing limit', async () => {
+  const f = fixture(), group = await f.create(); group.title = '会'.repeat(120)
+  group.members = Array.from({ length: 6 }, (_, n) => ({ id: `m${n}`, terminalId: 't'.repeat(128), title: '称'.repeat(120), mode: 'dsh-ai', launcher: 'shell' }))
+  const input = { requestId: 'latest', kind: 'conclusion', prompt: '目'.repeat(4000), excerpt: { terminalId: 'one', text: '文'.repeat(4000) } }
+  const snapshot = group.members.map((member, n) => ({ kind: 'reply', ...member, memberId: member.id, memberTitle: member.title,
+    text: `START_${n}` + '证'.repeat(7000) + `END_${n}`, model: 'M'.repeat(256), round: 2, truncated: true, totalLength: 50000,
+    resultRef: { terminalId: member.terminalId, messageId: 'assistant-' + '9'.repeat(100) + '-1' } }))
+  const prompt = f.groups.prompt(group, input, group.members[0], 1, snapshot)
+  assert.ok(prompt.length <= 8000, `prompt: ${prompt.length}`)
+  assert.equal((prompt.match(/缺失部分不可当作完整证据/g) ?? []).length, 6)
+  for (let n = 0; n < 6; n++) assert.match(prompt, new RegExp(`END_${n}`))
+  await f.groups.close()
+})
+
+test('completion is not public until the final save releases admission, then the next send succeeds immediately', async () => {
+  const f = fixture(), group = await f.create('create', ['one'])
+  const gate = f.controls.finalGate = { entered: Promise.withResolvers(), release: Promise.withResolvers() }
+  await f.send(group); await gate.entered.promise
+  const state = f.groups.states.get(f.owner), job = state.jobs.get(group.id)
+  assert.equal(state.groups.get(group.id).status, 'completed', 'Fixture must pause exactly at the former race')
+  const during = await f.groups.read(f.owner, { groupId: group.id })
+  assert.equal(during.status, 'running'); assert.equal(during.operation.status, 'running'); assert.match(during.operation.error, /正在保存/)
+  assert.equal((await f.groups.list(f.owner)).groups[0].status, 'running')
+  assert.equal(f.groups.observation(f.owner)[0].status, 'running')
+  await assert.rejects(f.send(group, { requestId: 'next' }), /GROUP_REJECTED.*等待/)
+  assert.equal(f.calls.length, 1)
+  gate.release.resolve(); await job.done; f.controls.finalGate = null
+  const completed = await f.groups.read(f.owner, { groupId: group.id }); assert.equal(completed.status, 'completed'); assert.equal(completed.operation.error, undefined)
+  await f.send(group, { requestId: 'next' }); assert.equal((await f.settle(group)).status, 'completed'); assert.equal(f.calls.length, 2)
+  await f.groups.close()
+})
+
+test('failed final persistence does not expose completion or admit more work until storage recovery', async () => {
+  const f = fixture(), group = await f.create('create', ['one'])
+  f.controls.failSave = value => value.status === 'completed'
+  await f.send(group); const blocked = await f.settle(group)
+  assert.equal(blocked.status, 'running'); assert.equal(blocked.operation.status, 'running'); assert.match(blocked.operation.error, /未确认保存/)
+  await assert.rejects(f.send(group, { requestId: 'next' }), /尚未确认保存/); assert.equal(f.calls.length, 1)
+  f.controls.failSave = null
+  const completed = await f.groups.read(f.owner, { groupId: group.id }); assert.equal(completed.status, 'completed'); assert.equal(completed.operation.error, undefined)
+  await f.send(group, { requestId: 'next' }); await f.settle(group); assert.equal(f.calls.length, 2)
+  await f.groups.close()
+})
+
+test('stop holding the owner command chain cannot deadlock final persistence', { timeout: 1500 }, async () => {
+  const f = fixture(), group = await f.create('create', ['one'])
+  const gate = f.controls.finalGate = { entered: Promise.withResolvers(), release: Promise.withResolvers() }
+  await f.send(group); await gate.entered.promise
+  let settled = false
+  const stopping = f.groups.stopGroup(f.owner, { groupId: group.id }).then(result => { settled = true; return result })
+  await tick(); assert.equal(settled, false)
+  gate.release.resolve(); const stopped = await stopping
+  assert.equal(stopped.status, 'completed'); assert.equal(f.groups.hasActive(f.owner), false); assert.equal(f.calls.length, 1)
   await f.groups.close()
 })

@@ -87,6 +87,30 @@ test('journal refuses foreign records, replaced owners, identity changes, failed
   await assert.rejects(journal.put(f.owner, task()), /已关闭/)
 })
 
+test('journal enforces independent owner budgets without deleting receipts or allowing purpose relabeling', async () => {
+  const f = fixture(), journal = new HandoffJournal(f.ctx)
+  for (let index = 0; index < 32; index++) await journal.put(f.owner, task({ id: `execution-${index}`, requestId: `execution-request-${index}` }))
+  await assert.rejects(journal.put(f.owner, task({ id: 'execution-overflow', requestId: 'execution-overflow' })), /32.*执行与返工/)
+  for (let index = 0; index < 256; index++) await journal.put(f.owner, task({ id: `discussion-${index}`, requestId: `discussion-request-${index}`,
+    sourceGroupId: 'group', groupPurpose: 'discussion', returnToConversation: false }))
+  await assert.rejects(journal.put(f.owner, task({ id: 'discussion-overflow', requestId: 'discussion-overflow',
+    sourceGroupId: 'group', groupPurpose: 'discussion', returnToConversation: false })), /256.*讨论/)
+  assert.equal((await journal.list(f.owner)).length, 288)
+  const first = (await journal.list(f.owner)).find(row => row.id === 'execution-0')
+  await journal.put(f.owner, first)
+  await assert.rejects(journal.put(f.owner, { ...first, sourceGroupId: 'group', groupPurpose: 'discussion' }), /用途不可更改/)
+  const discussion = (await journal.list(f.owner)).find(row => row.id === 'discussion-0')
+  await assert.rejects(journal.put(f.owner, { ...discussion, groupPurpose: 'execution' }), /用途不可更改/)
+  const foreign = { id: 'foreign', session: { events: [] } }; f.agents.set(foreign.id, foreign)
+  await journal.put(foreign, task({ sourceSessionId: foreign.id }))
+  assert.equal((await journal.list(foreign)).length, 1); assert.equal((await journal.list(f.owner)).length, 288)
+  await journal.close()
+  const restored = new HandoffJournal(f.ctx)
+  assert.equal((await restored.list(f.owner)).length, 288)
+  await assert.rejects(restored.put(f.owner, task({ id: 'after-restart', requestId: 'after-restart' })), /32.*执行与返工/)
+  await restored.close()
+})
+
 test('cold recovery restores a partially committed rework relationship without executing or accepting it', async () => {
   const f=fixture(), first=new HandoffJournal(f.ctx)
   await first.put(f.owner,task())
@@ -243,6 +267,9 @@ test('official JSON provider persists and reopens handoffs with valid unit names
   // This must reject the original defect through the actual persistence provider.
   await assert.rejects(first.backend.kv.open({ name: 'dsh-terminal-handoffs', version: 1, tables: ['tasks'], hasGlobal: false }), /invalid unit name/)
   await first.journal.put(owner, task({ status: 'running' }))
+  for (let index = 0; index < 36; index++) await first.journal.put(owner, task({ id: `discussion-${index}`, requestId: `discussion-request-${index}`,
+    sourceGroupId: 'group', groupPurpose: 'discussion', returnToConversation: false }))
+  await first.journal.put(owner, task({ id: 'execution-after-discussions', requestId: 'execution-after-discussions' }))
   await first.journal.close()
   await first.backend.close()
   const saved = JSON.parse(await readFile(join(directory, `${handoffDomainSpec.name}.json`), 'utf8'))
@@ -250,10 +277,13 @@ test('official JSON provider persists and reopens handoffs with valid unit names
   assert.equal(Object.values(saved.tables.tasks)[0].status, 'running')
   const second = open()
   const restored = await second.journal.list(owner)
-  assert.equal(restored.length, 1)
-  assert.equal(restored[0].status, 'interrupted')
-  assert.equal(restored[0].requestId, 'request-1')
-  assert.equal(restored[0].fingerprint, 'a'.repeat(64))
+  assert.equal(restored.length, 38)
+  const original = restored.find(row => row.id === 'task-1')
+  assert.equal(original.status, 'interrupted')
+  assert.equal(original.requestId, 'request-1')
+  assert.equal(original.fingerprint, 'a'.repeat(64))
+  assert.equal(restored.filter(row => row.groupPurpose === 'discussion').length, 36)
+  assert.equal(restored.find(row => row.id === 'execution-after-discussions').status, 'succeeded')
   assert.equal(owner.session.events.length, 0)
   const recovered = JSON.parse(await readFile(join(directory, `${handoffDomainSpec.name}.json`), 'utf8'))
   assert.equal(Object.values(recovered.tables.tasks)[0].status, 'interrupted')

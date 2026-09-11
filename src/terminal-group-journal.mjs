@@ -13,6 +13,8 @@ export const groupOperationSchema = z.object({ requestId: id, kind: z.enum(['dis
   rounds: z.number().int().min(1).max(2), round: z.number().int().min(0).max(2), activeMemberId: id.optional(), error: z.string().max(1000).optional() }).strict()
 export const groupMessageSchema = z.object({ id, kind: z.enum(['user', 'reply', 'conclusion', 'error']), text: z.string().max(16000), createdAt: time,
   requestId: id, memberId: id.optional(), memberTitle: z.string().max(120).optional(), terminalId: id.optional(), launcher: z.string().max(64).optional(), mode: mode.optional(), model: z.string().max(256).optional(),
+  truncated: z.boolean().optional(), sourceTruncated: z.boolean().optional(), totalLength: time.optional(),
+  resultRef: z.object({ terminalId: id, messageId: id.regex(/^assistant-\d+-\d+$/) }).strict().optional(),
   round: z.number().int().min(1).max(2).optional(), sharedExcerpt: groupExcerptSchema.optional(), taskId: id.optional() }).strict()
 export const groupRecordSchema = z.object({ id, sourceSessionId: id, createRequestId: id, fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   title: z.string().min(1).max(120), status, members: z.array(groupMemberSchema).min(1).max(6), createdAt: time, updatedAt: time,

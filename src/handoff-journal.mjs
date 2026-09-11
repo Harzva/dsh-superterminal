@@ -4,6 +4,13 @@ import { z } from 'zod'
 const id = z.string().min(1).max(128)
 const launcher = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/)
 const time = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+// Retain every accepted identity and result. Independent bounded budgets avoid
+// discarding idempotency receipts or allowing meetings to consume execution slots.
+export const handoffRetentionLimits = Object.freeze({ execution: 32, discussion: 256 })
+export const handoffRetentionKind = task => task.sourceGroupId && task.groupPurpose === 'discussion' && !task.parentTaskId ? 'discussion' : 'execution'
+export const handoffRetentionError = kind => kind === 'discussion'
+  ? '当前会话的 256 条讨论发言记录已满，请在新会话继续讨论；执行与返工的记录容量独立计算。'
+  : '当前会话的 32 条执行与返工记录已满，请在新会话继续执行；讨论发言的记录容量独立计算。'
 export const handoffRecordSchema = z.object({
   id, requestId: id, sourceSessionId: id, sourceTerminalId: id,
   sourceGroupId: id.optional(), groupPurpose: z.enum(['discussion', 'execution']).optional(),
@@ -14,6 +21,7 @@ export const handoffRecordSchema = z.object({
   status: z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted']),
   delivery: z.enum(['none', 'queued', 'failed', 'uncertain']),
   result: z.string().max(16000).optional(), error: z.string().max(1000).optional(),
+  resultTruncated: z.boolean().optional(), totalResultLength: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   createdAt: time, updatedAt: time, exitCode: z.number().int().nullable(),
   executionFinishedAt: time.optional(),
   messageId: id.optional(),
@@ -119,6 +127,14 @@ export class HandoffJournal {
         throw new Error('交接记录身份不匹配')
       }
       if (previous && previous.parentTaskId !== clean.parentTaskId) throw new Error('返工来源不可更改')
+      if (previous && (previous.sourceGroupId !== clean.sourceGroupId || (previous.groupPurpose ?? 'execution') !== (clean.groupPurpose ?? 'execution'))) {
+        throw new Error('已保存的交接来源与用途不可更改')
+      }
+      if (!previous) {
+        const kind = handoffRetentionKind(clean)
+        const count = [...table.entries()].filter(([, record]) => record.sourceSessionId === owner.id && handoffRetentionKind(record) === kind).length
+        if (count >= handoffRetentionLimits[kind]) throw new Error(handoffRetentionError(kind))
+      }
       if (previous?.acceptance === 'accepted' && (clean.acceptance !== 'accepted' ||
         clean.reviewRequestId !== previous.reviewRequestId || clean.reviewedAt !== previous.reviewedAt || clean.reviewNotes !== previous.reviewNotes)) {
         throw new Error('已保存的验收记录不可覆盖')

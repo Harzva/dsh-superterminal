@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream'
 import { TerminalHandoffs, HandoffProtocol } from '../src/handoffs.mjs'
 import { NativeTerminals } from '../src/terminals.mjs'
 import { requests } from '../src/remote.mjs'
+import { HandoffJournal, handoffRecordSchema } from '../src/handoff-journal.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
 function fixture(options = {}) {
@@ -46,6 +47,105 @@ async function completed(f, changes) {
   return settle(f, task)
 }
 async function settle(f, task) { const job = f.handoffs.states.get(f.owner).active.get(task.id); if (job) await job.done; return (await f.handoffs.list(f.owner)).tasks.find(row => row.id === task.id) }
+const discussionInput = index => ({ requestId: `discussion-${index}`, sourceTerminalId: 'source', targetLauncher: 'pi',
+  sourceGroupId: `meeting-${Math.floor(index / 12)}`, groupPurpose: 'discussion', prompt: `Discuss item ${index}`, returnToConversation: false })
+async function completeDiscussion(f, index) {
+  const task = await f.handoffs.start(f.owner, discussionInput(index))
+  assert.ok(task.id && !task.rejected)
+  await tick(); f.handles.at(-1).finish(piResult(`Opinion ${index}`))
+  return settle(f, task)
+}
+
+test('256 retained discussion turns cannot consume execution/rework slots or erase old replay identities', async () => {
+  const f = fixture(), firstExecution = await completed(f, { requestId: 'before-meetings' })
+  let firstDiscussion
+  for (let index = 0; index < 256; index++) {
+    const task = await completeDiscussion(f, index)
+    if (!index) firstDiscussion = task
+  }
+  const full = await f.handoffs.start(f.owner, discussionInput(256))
+  assert.equal(full.rejected, true); assert.match(full.message, /256.*讨论.*独立/)
+  assert.equal(f.records.size, 257)
+  assert.ok((await f.handoffs.list(f.owner)).tasks.some(task => task.id === firstExecution.id), 'New discussions must not hide the oldest execution task')
+  const execution = await completed(f, { requestId: 'after-meetings' })
+  assert.equal(execution.status, 'succeeded')
+  const rework = await f.handoffs.rework(f.owner, { taskId: execution.id, requestId: 'rework-after-meetings', issues: 'Cover the missing boundary' })
+  assert.ok(rework.id && !rework.rejected); assert.equal(rework.parentTaskId, execution.id)
+  await tick(); f.handles.at(-1).finish(piResult('Corrected execution')); await settle(f, rework)
+  assert.equal((await f.handoffs.accept(f.owner, { taskId: rework.id, requestId: 'accept-corrected' })).acceptance, 'accepted')
+  for (let index = 0; index < 29; index++) await completed(f, { requestId: `remaining-execution-${index}` })
+  assert.equal(f.records.size, 288)
+  const executionFull = await f.start({ requestId: 'execution-over-budget' })
+  assert.equal(executionFull.rejected, true); assert.match(executionFull.message, /32.*执行与返工.*独立/)
+  const spawnCount = f.handles.length
+  f.sources.delete('source')
+  assert.equal((await f.handoffs.start(f.owner, discussionInput(0))).id, firstDiscussion.id)
+  assert.equal((await f.handoffs.replayRequest(f.owner, discussionInput(0))).id, firstDiscussion.id)
+  assert.equal((await f.start({ requestId: 'before-meetings' })).id, firstExecution.id)
+  assert.equal((await f.handoffs.start(f.owner, { ...discussionInput(0), groupPurpose: 'execution' })).rejected, true)
+  assert.equal(f.handles.length, spawnCount); assert.equal((await f.handoffs.list(f.owner)).tasks.length, 288)
+  await f.handoffs.close()
+})
+
+test('a full execution budget leaves discussion space and clients cannot choose the internal discussion budget', async () => {
+  const f = fixture()
+  for (let index = 0; index < 32; index++) await completed(f, { requestId: `execution-${index}` })
+  const facade = { handoffs: f.handoffs, current: owner => f.handoffs.terminals.current(owner),
+    groups: { read: async () => ({ id: 'group', members: [{ terminalId: 'source' }] }) } }
+  const publicInput = { requestId: 'claimed-discussion', sourceTerminalId: 'source', sourceGroupId: 'group', targetLauncher: 'pi', prompt: 'Work' }
+  await assert.rejects(NativeTerminals.prototype.handoffStart.call(facade, f.owner, { ...publicInput, groupPurpose: 'discussion' }))
+  const linkedExecution = await NativeTerminals.prototype.handoffStart.call(facade, f.owner, publicInput)
+  assert.equal(linkedExecution.rejected, true); assert.match(linkedExecution.message, /32.*执行与返工/)
+  assert.equal((await completeDiscussion(f, 0)).status, 'succeeded')
+  const unbound = await f.handoffs.start(f.owner, { ...discussionInput(1), sourceGroupId: undefined })
+  assert.equal(unbound.rejected, true); assert.match(unbound.message, /必须来自讨论组/)
+  assert.equal(f.records.size, 33); await f.handoffs.close()
+})
+
+test('more than 32 discussion records and normal execution deduplicate through a cold journal restore with owner isolation', async () => {
+  const f = fixture(), disk = new Map(), ctx = f.handoffs.ctx, previousGet = ctx.get
+  ctx.get = name => name === 'storageDomain' ? { async open() { return { table: () => ({ entries: () => disk.entries(), get: key => disk.get(key),
+    async put(key, value) { disk.set(key, handoffRecordSchema.parse(structuredClone(value))) } }), async close() {} } } } : previousGet(name)
+  f.handoffs.journal = new HandoffJournal(ctx)
+  const first = await completeDiscussion(f, 0)
+  for (let index = 1; index < 36; index++) await completeDiscussion(f, index)
+  const execution = await completed(f, { requestId: 'durable-execution' })
+  await f.handoffs.close()
+  const reopened = new TerminalHandoffs(f.handoffs.terminals), spawnCount = f.handles.length
+  const rows = (await reopened.list(f.owner)).tasks
+  assert.equal(rows.length, 37); assert.equal(rows.filter(task => task.groupPurpose === 'discussion').length, 36)
+  f.sources.delete('source')
+  assert.equal((await reopened.start(f.owner, discussionInput(0))).id, first.id)
+  assert.equal((await reopened.replayRequest(f.owner, discussionInput(0))).id, first.id)
+  assert.equal((await reopened.start(f.owner, { requestId: 'durable-execution', sourceTerminalId: 'source', targetLauncher: 'pi', prompt: 'Review the change' })).id, execution.id)
+  assert.equal((await reopened.start(f.owner, { ...discussionInput(0), prompt: 'Changed contents' })).rejected, true)
+  const foreign = { id: 'foreign', session: { events: [] } }; f.agents.set(foreign.id, foreign)
+  assert.deepEqual((await reopened.list(foreign)).tasks, [])
+  assert.equal(await reopened.replayRequest(foreign, discussionInput(0)), null)
+  await assert.rejects(reopened.cancel(foreign, { taskId: first.id }), /当前会话/)
+  assert.equal(f.handles.length, spawnCount); assert.equal(disk.size, 37)
+  const rework = await reopened.rework(f.owner, { taskId: execution.id, requestId: 'cold-rework', issues: 'Fix the remaining problem' })
+  assert.ok(rework.id); await tick(); f.handles.at(-1).finish(piResult('Cold rework completed'))
+  await reopened.states.get(f.owner).active.get(rework.id)?.done
+  assert.equal((await reopened.list(f.owner)).tasks.find(task => task.id === rework.id)?.status, 'succeeded')
+  await reopened.close()
+})
+
+test('CLI truncation metadata describes only the actual successful final assistant text', async () => {
+  const f = fixture(), task = await f.start(), full = 'BEGIN' + 'x'.repeat(18000) + 'END'
+  await tick(); f.handles[0].finish(piResult(`\u001b[32m${full}\u001b[0m`))
+  const result = await settle(f, task)
+  assert.equal(result.resultTruncated, true); assert.equal(result.totalResultLength, full.length); assert.ok(result.result.length <= 16000)
+  assert.equal(f.records.get(task.id).totalResultLength, full.length)
+  const protocol = new HandoffProtocol('pi')
+  for (const event of [...piResult(full), { type: 'auto_retry_start' }, ...piResult('Final short reply')]) protocol.accept(event)
+  assert.equal(protocol.finish(0), 'Final short reply'); assert.equal(protocol.resultTruncated, false); assert.equal(protocol.totalResultLength, 17)
+  const short = await completed(f, { requestId: 'short' })
+  assert.equal(short.resultTruncated, undefined); assert.equal(short.totalResultLength, undefined)
+  const empty = new HandoffProtocol('codex'); empty.accept({ type: 'turn.completed' })
+  assert.throws(() => empty.finish(0), /完整/); assert.equal(empty.totalResultLength, undefined)
+  await f.handoffs.close()
+})
 
 test('discussion participation cannot be accepted, reworked or returned as an execution deliverable', async () => {
   const f = fixture()

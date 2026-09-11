@@ -1,3 +1,4 @@
+import type { ResultPreviewInfo, ReadNativeResult } from './result-types';
 import type { GroupSummary, TerminalGroup, GroupCandidate, GroupSendInput, GroupCreateInput, GroupUpdateInput } from './group-types';
 export interface ReadinessPoint { state: string; label: string; detail: string; checkedAt: number | null }
 export interface AgentHealth { installation: ReadinessPoint; authentication: ReadinessPoint; connection: ReadinessPoint; quota: ReadinessPoint; canCheckLogin: boolean }
@@ -37,6 +38,8 @@ export interface HandoffTask {
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
   delivery: 'none' | 'queued' | 'failed' | 'uncertain';
   result?: string;
+  resultTruncated?: boolean;
+  totalResultLength?: number;
   error?: string;
   createdAt: number;
   updatedAt: number;
@@ -69,7 +72,7 @@ export interface NativeTaskState {
   terminalId: string; sessionId?: string;
   status: 'idle' | 'running' | 'stopping' | 'failed' | 'completed';
   canStop?: boolean;
-  messages: {id: string; role: 'user' | 'assistant' | 'tool'; text: string; title?: string; status?: 'queued' | 'pending' | 'running' | 'completed' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'}[];
+  messages: (ResultPreviewInfo & {id: string; role: 'user' | 'assistant' | 'tool'; text: string; title?: string; status?: 'queued' | 'pending' | 'running' | 'completed' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'})[];
   model?: string; permission?: string; error?: string; acceptedRequestIds?: string[];
 }
 export interface NativeTaskInput { terminalId: string; requestId: string; prompt: string; excerpt?: string }
@@ -83,6 +86,7 @@ export interface TerminalBridge {
   groupArchive(input: {groupId: string}): Promise<TerminalGroup>;
   runState(input: {terminalId: string}): Promise<NativeTaskState>;
   runSend(input: NativeTaskInput): Promise<NativeTaskState>;
+  runResult: ReadNativeResult;
   runStop(input: {terminalId: string}): Promise<NativeTaskState>;
   handoffList(): Promise<{tasks: HandoffTask[]; targets: HandoffTarget[]}>;
   handoffStart(input: HandoffInput): Promise<HandoffTask | {rejected: true; message: string}>;

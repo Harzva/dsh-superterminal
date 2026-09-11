@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { appendTextPreview, createTextPreview, previewTextBlocks, readTextPage, RESULT_PAGE_LIMIT } from './native-result-text.mjs'
 
 const MARKER = 'dsh-terminal/native-run'
 const PLUGIN = 'dsh-terminal'
@@ -9,7 +10,7 @@ const sessionIdFor = (owner, terminalId) => `session-terminal-run-${hash([owner.
 const prefixFor = sessionId => `terminal-run-${hash(sessionId).slice(0, 16)}-`
 const messageIdFor = (sessionId, requestId) => prefixFor(sessionId) + Buffer.from(requestId).toString('base64url')
 const text = (value, limit = 8000) => typeof value === 'string' ? value.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').slice(0, limit) : ''
-const textBlocks = blocks => (Array.isArray(blocks) ? blocks : []).filter(block => block?.type === 'text').map(block => text(block.text)).join('\n').slice(0, 8000)
+const textBlocks = blocks => previewTextBlocks(blocks).text
 const routeOf = value => value && typeof value.provider === 'string' && value.provider && typeof value.model === 'string' && value.model
   ? { provider: value.provider, model: value.model, ...(typeof value.reasoningEffort === 'string' ? { reasoningEffort: value.reasoningEffort } : {}) } : null
 const permissionName = mode => ({ 'read-only': '只读', 'workspace-write': '可修改当前工作区', 'danger-full-access': '完整访问' })[mode] ?? '权限待确认'
@@ -47,6 +48,13 @@ function identifiedInput(sessionId, requestId, prompt, excerpt) {
 function isRuntimeContext(message) {
   const source = message.source
   if (source?.kind === 'skill-catalog') return source.form === 'catalog' && Array.isArray(source.entries)
+  // Source contracts: DSH rc.2 context/agent-instructions and skill/tool-skill.
+  // Do not infer provenance from <system-reminder> text or a plugin's name.
+  if (source?.kind === 'agent-instructions') return source.form === 'instructions'
+    && Array.isArray(source.changes) && source.changes.every(change => change && ['set', 'replace', 'remove'].includes(change.action)
+      && typeof change.scope === 'string' && typeof change.path === 'string' && (change.digest === undefined || typeof change.digest === 'string'))
+    && (source.baseline === undefined || source.baseline === true) && (source.baselineIdentity === undefined || typeof source.baselineIdentity === 'string')
+  if (source?.kind === 'skill-invocation') return source.form === 'instructions' && typeof source.name === 'string' && source.name.trim().length > 0
   if (source?.kind !== 'plugin' || source.plugin !== '@deepseek-ai/dsh-system-prompt') return false
   if (source.form === 'snapshot') return Array.isArray(source.sections)
   const blocks = message.content
@@ -114,10 +122,11 @@ export class NativeRuns {
   project(record, session = record.handle?.agent.session) {
     if (!session) return
     const events = session.events
-    if (record.projectedSession !== session) { record.cursor = 0; record.messages.clear(); record.projectedSession = session }
+    record.streams ??= new Map()
+    if (record.projectedSession !== session) { record.cursor = 0; record.messages.clear(); record.streams.clear(); record.projectedSession = session }
     const put = message => {
       record.messages.set(message.id, message)
-      while (record.messages.size > 120) record.messages.delete(record.messages.keys().next().value)
+      while (record.messages.size > 120) { const id = record.messages.keys().next().value; record.messages.delete(id); record.streams.delete(id) }
     }
     for (; record.cursor < events.length; record.cursor++) {
       const event = events[record.cursor], data = event.data ?? {}
@@ -137,18 +146,22 @@ export class NativeRuns {
       }
       const assistantId = `assistant-${data.turn}-${data.step}`
       if (event.type === 'assistant/chunk' && data.chunk?.type === 'text-delta') {
-        const previous = record.messages.get(assistantId)
-        put({ id: assistantId, role: 'assistant', text: text((previous?.text ?? '') + data.chunk.text), status: 'running' })
+        let preview = record.streams.get(assistantId)
+        if (!preview) { preview = createTextPreview(); record.streams.set(assistantId, preview) }
+        put({ id: assistantId, role: 'assistant', ...appendTextPreview(preview, data.chunk.text), status: 'running' })
       } else if (event.type === 'assistant/message') {
-        const content = textBlocks(data.message?.content)
-        if (content) put({ id: assistantId, role: 'assistant', text: content, status: data.interrupted ? 'interrupted' : 'completed' })
+        const content = previewTextBlocks(data.message?.content)
+        record.streams.delete(assistantId)
+        if (content.text) put({ id: assistantId, role: 'assistant', ...content,
+          ...(Number.isSafeInteger(data.turn) && data.turn >= 0 && Number.isSafeInteger(data.step) && data.step >= 0 ? { resultRef: { terminalId: record.terminalId, messageId: assistantId } } : {}),
+          status: data.interrupted ? 'interrupted' : 'completed' })
       } else if (event.type === 'tool/call') {
         put({ id: `tool-${data.callId}`, role: 'tool', title: text(data.name, 120), text: text(data.arguments, 4000), status: 'running' })
       } else if (event.type === 'tool/result') {
         const block = data.message?.content?.[0]
         if (block?.type !== 'tool-result') continue
         const id = `tool-${block.toolCallId}`, previous = record.messages.get(id)
-        put({ id, role: 'tool', title: previous?.title ?? '工具结果', text: textBlocks(block.content), status: block.isError ? 'failed' : 'completed' })
+        put({ id, role: 'tool', title: previous?.title ?? '工具结果', ...previewTextBlocks(block.content), status: block.isError ? 'failed' : 'completed' })
       } else if (event.type === 'turn/end') {
         record.lastOutcome = data.reason?.kind
       }
@@ -157,7 +170,7 @@ export class NativeRuns {
     let size = 0
     for (const [id, message] of [...record.messages].reverse()) {
       size += message.text.length
-      if (size > 80000) record.messages.delete(id)
+      if (size > 80000) { record.messages.delete(id); record.streams.delete(id) }
     }
   }
 
@@ -184,6 +197,33 @@ export class NativeRuns {
     const policy = this.policy(owner)
     return { terminalId, status: 'idle', canStop: false, messages: [], acceptedRequestIds: [], ...(route ? { model: route.model, route } : {}),
       permission: permissionName(policy.mode), policy: { mode: policy.mode, approval: 'never' } }
+  }
+
+  async result(owner, { terminalId, messageId, offset, limit = RESULT_PAGE_LIMIT }, signal) {
+    this.terminals.current(owner); signal?.throwIfAborted()
+    if (this.stopped || this.disposedOwners.has(owner)) throw failure('当前执行会话已关闭，无法读取结果。')
+    const match = typeof messageId === 'string' && messageId.length <= 128 && /^assistant-(\d+)-(\d+)$/.exec(messageId)
+    if (typeof terminalId !== 'string' || !terminalId || terminalId.length > 128 || !match || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > RESULT_PAGE_LIMIT) throw rejected('请选择有效的结果与页码。')
+    const sessionId = sessionIdFor(owner, terminalId), sourcePolicy = this.policy(owner)
+    const record = this.owners.get(owner)?.get(terminalId)
+    let session = record?.handle?.agent.session
+    if (!session) {
+      const persistence = this.ctx.get('sessionPersistence')
+      if (typeof persistence?.inspect !== 'function') throw failure('当前无法读取原始执行记录，请稍后重试。')
+      try {
+        const snapshot = await boundedRead(persistence.inspect(sessionId, signal), signal)
+        session = { id: snapshot.meta.id, header: snapshot.meta, events: snapshot.events }
+      } catch { signal?.throwIfAborted(); throw failure('完整结果暂时不可读取，已有预览仍保留。') }
+    }
+    this.terminals.current(owner); signal?.throwIfAborted()
+    if (this.stopped || this.disposedOwners.has(owner) || hash(this.policy(owner)) !== hash(sourcePolicy)) throw failure('会话或权限已变化，已停止读取。')
+    // Reads remain available after the PTY closes; the native session marker,
+    // owner identity and unchanged workspace/policy are the authority, not a
+    // caller-supplied arbitrary session id or filesystem path.
+    this.validateSession({ terminalId, sessionId, sourcePolicy, ownerId: owner.id }, session)
+    const event = session.events.findLast(item => item.type === 'assistant/message' && `assistant-${item.data?.turn}-${item.data?.step}` === messageId)
+    if (!event) throw rejected('原执行记录中没有这条回复，无法读取其他消息。')
+    return { terminalId, messageId, ...readTextPage(event.data.message?.content, offset, limit) }
   }
 
   assertRuntime() {
@@ -423,30 +463,37 @@ export class NativeRuns {
       const events = handle.agent.session.events
       const messageId = messageIdFor(record.sessionId, requestId)
       const inboxInputs = new Set()
-      let turn, targetTurn, reply, ended, contaminated = false, turnInputs = []
+      let turn, targetTurn, reply, replyMessageId, ended, contaminated = false, turnInputs = []
       for (const event of events) {
         const data = event.data ?? {}
-        if (event.type === 'agent/inbox/spliced') for (const message of data.inserted ?? []) inboxInputs.add(message.id)
+        if (event.type === 'agent/inbox/spliced') for (const message of data.inserted ?? []) {
+          // AGENTS file refreshes use the native next-step inbox before the
+          // pre-step projection. Next-turn work and all other queued input
+          // remain competing requests, even if they imitate context metadata.
+          if (!(data.target === 'next-step' && message.source?.kind === 'agent-instructions' && isRuntimeContext(message))) inboxInputs.add(message.id)
+        }
         if (event.type === 'turn/start') { turn = data.turn; turnInputs = [] }
         if (event.type === 'user/message' && (inboxInputs.has(data.id) || !isRuntimeContext(data))) {
           turnInputs.push(data.id)
-          if (data.id === messageId && ownRequest(record.sessionId, data) === requestId) { targetTurn = turn; reply = undefined; ended = undefined; contaminated = turnInputs.some(id => id !== messageId) }
+          if (data.id === messageId && ownRequest(record.sessionId, data) === requestId) { targetTurn = turn; reply = undefined; replyMessageId = undefined; ended = undefined; contaminated = turnInputs.some(id => id !== messageId) }
           else if (targetTurn !== undefined && turn === targetTurn && !ended) contaminated = true
         }
         if (targetTurn === undefined || data.turn !== targetTurn) continue
         if (event.type === 'assistant/message' && !data.interrupted) {
-          const value = textBlocks(data.message?.content)
-          reply = value.trim() ? value : undefined
+          const value = previewTextBlocks(data.message?.content)
+          reply = value.text.trim() ? value : undefined
+          replyMessageId = Number.isSafeInteger(data.turn) && data.turn >= 0 && Number.isSafeInteger(data.step) && data.step >= 0 ? `assistant-${data.turn}-${data.step}` : undefined
         }
         if (event.type === 'turn/end') ended = data.reason?.kind
       }
-      if (targetTurn === undefined || ended !== 'completed' || contaminated || !reply?.trim() || handle.agent.status === 'running') {
+      if (targetTurn === undefined || ended !== 'completed' || contaminated || !reply?.text.trim() || handle.agent.status === 'running') {
         throw failure('未收到与本次发言对应的完整结果；未将其他任务或历史消息算作回复。')
       }
       await this.checkpoint(record, handle.agent.session, 'group-result-checkpoint', '讨论回复已生成，但执行记录保存尚未确认。')
       controller.signal.throwIfAborted(); this.checkPolicy(owner, record)
       if (record.groupLease !== lease) throw failure('本次讨论的执行权限已释放，未回传过期回复。')
-      return { text: reply.trim(), model: record.route?.model, sessionId: record.sessionId }
+      return { ...reply, text: reply.text.trim(), model: record.route?.model, sessionId: record.sessionId,
+        ...(replyMessageId ? { resultRef: { terminalId: record.terminalId, messageId: replyMessageId } } : {}) }
     } catch (error) {
       // A delivered but uncertain turn is cancelled before another task may use
       // this session. A cleanup failure deliberately retains the ownership fence.

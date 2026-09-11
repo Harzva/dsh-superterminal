@@ -157,7 +157,10 @@ export class NativeTerminals {
     }
     return this.handoffs.start(owner, submission, signal)
   }
-  async handoffList(owner, request, signal) { requests.handoffList.parse(request); return this.handoffs.list(owner, signal) }
+  async handoffList(owner, request, signal) {
+    const input = requests.handoffList.parse(request), result = await this.handoffs.list(owner, signal)
+    return input.includeDiscussions === false ? { ...result, tasks: result.tasks.filter(task => task.groupPurpose !== 'discussion') } : result
+  }
   async handoffCancel(owner, request, signal) { return this.handoffs.cancel(owner, requests.handoffCancel.parse(request), signal) }
   async handoffReturn(owner, request, signal) { return this.handoffs.returnResult(owner, requests.handoffReturn.parse(request), signal) }
   async handoffAccept(owner, request, signal) { return this.handoffs.accept(owner, requests.handoffAccept.parse(request), signal) }
@@ -165,6 +168,7 @@ export class NativeTerminals {
   async agentCheck(owner, request, signal) { return this.agentReadiness.check(owner, requests.agentCheck.parse(request).launcher, signal) }
   async runState(owner, request, signal) { return this.nativeRuns.state(owner, requests.runState.parse(request), signal) }
   async runSend(owner, request, signal) { return this.nativeRuns.send(owner, requests.runSend.parse(request), signal) }
+  async runResult(owner, request, signal) { return this.nativeRuns.result(owner, requests.runResult.parse(request), signal) }
   async runStop(owner, request, signal) { return this.nativeRuns.stop(owner, requests.runStop.parse(request), signal) }
 
   async inventory(owner, request, signal) {

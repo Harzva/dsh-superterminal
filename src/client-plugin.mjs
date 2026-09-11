@@ -55,6 +55,7 @@ function ScopeTerminal({ sessionId, invokeTerminal, active, compact, contextLabe
     const methods = Object.fromEntries(METHODS.map(method => [method,
       (request = {}) => invokeTerminal(sessionId, method, request),
     ]))
+    methods.handoffList = () => invokeTerminal(sessionId, 'handoffList', { includeDiscussions: false })
     if(recoverSession) methods.list = async () => {
       try { return await invokeTerminal(sessionId, 'list', {}) }
       catch(error) {

@@ -17,7 +17,7 @@ function fixture() {
     return { workspaceRoot: session.header.cwd, mode: session.events.findLast(event => event.type === 'sandbox/mode')?.data.mode ?? 'workspace-write' }
   } }, get(name) {
     if (name === 'sessions') return this.sessions
-    if (name === 'sessionPersistence') return { async list() { return [...disk].map(([id]) => ({ id })) } }
+    if (name === 'sessionPersistence') return { async list() { return [...disk].map(([id]) => ({ id })) }, async inspect(id) { if (controls.inspectGate) await controls.inspectGate.promise; const record = disk.get(id); if (!record) throw Error('missing'); return { meta: record.header, events: record.events } } }
     if (name === 'apiProxy') return { sessions: { async models() { return { rpcId: 'query', result: { ok: true, value: { current: { provider: 'current-provider', model: 'current-model', reasoningEffort: 'low' } } } } } } }
     if (name === 'agentDefaultModel') return { currentSelection: () => ({ provider: 'default', model: 'default' }) }
   } }
@@ -293,4 +293,45 @@ test('creation checkpoint failure preserves its first private cause while state 
   assert.equal(Object.hasOwn(state, 'diagnostic'), false)
   assert.equal(state.canStop, false); assert.equal(f.handles[0].agent.sends.length, 0)
   f.controls.flush = true; await f.runs.close()
+})
+
+test('native originals are paged without trimming final text, hidden fields or new agent work', async () => {
+  const f = fixture(); await f.send(); const session = f.handles[0].agent.session
+  const original = 'ACTUAL_HEAD\n' + 'x'.repeat(18000) + '\nACTUAL_TAIL'
+  f.append(session, 'assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', text: original } })
+  let state = await f.runs.state(f.owner, { terminalId: 't1' }), preview = state.messages.at(-1)
+  assert.equal(preview.truncated, true); assert.equal(preview.totalLength, original.length); assert.ok(preview.text.length <= 8000)
+  assert.ok(preview.text.endsWith('ACTUAL_TAIL')); assert.equal(preview.resultRef, undefined)
+  f.append(session, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: 'PRIVATE_REASONING' }, { type: 'text', text: original }] } })
+  state = await f.runs.state(f.owner, { terminalId: 't1' }); preview = state.messages.at(-1)
+  assert.deepEqual(preview.resultRef, { terminalId: 't1', messageId: 'assistant-1-1' })
+  const input = { ...preview.resultRef, offset: 0, limit: 8000 }, pages = []
+  do { const page = await f.terminals.runResult(f.owner, input); assert.ok(page.text.length <= 8000); pages.push(page.text); input.offset = page.nextOffset; if (!page.hasMore) break } while (pages.length < 10)
+  assert.equal(pages.join(''), original); assert.equal(f.handles.length, 1); assert.equal(f.handles[0].agent.sends.length, 1)
+  await assert.rejects(f.terminals.runResult(f.owner, { ...input, messageId: 'assistant-99-99' }), /没有这条回复/)
+  await assert.rejects(f.terminals.runResult(f.owner, { ...input, messageId: 'tool-private' }))
+  await assert.rejects(f.terminals.runResult(f.owner, { ...input, limit: 16001 }))
+  const end = await f.terminals.runResult(f.owner, { ...input, offset: original.length + 10 }); assert.equal(end.text, ''); assert.equal(end.hasMore, false)
+  await f.runs.close()
+})
+
+test('closed terminal and cold original reads use the owned native history without reviving sessions', async () => {
+  const f = fixture(); await f.send(); const handle = f.handles[0], session = handle.agent.session
+  f.append(session, 'assistant/message', { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'Durable original' }] } })
+  const input = { terminalId: 't1', messageId: 'assistant-1-1', offset: 0 }
+  await f.runs.disposeTerminal(f.owner, 't1'); f.entries.delete('t1')
+  assert.equal((await f.runs.result(f.owner, input)).text, 'Durable original')
+  const cold = new NativeRuns(f.terminals, f.runtime), logs = f.log.length
+  assert.equal((await cold.result(f.owner, input)).text, 'Durable original'); assert.equal(f.handles.length, 1); assert.equal(f.log.length, logs)
+  await assert.rejects(cold.result(f.owner, { ...input, terminalId: 't2' }), /不可读取/)
+  const foreign = { ...f.owner, id: 'foreign-owner', session: { ...f.owner.session, id: 'foreign-owner' } }; f.agents.set(foreign.id, foreign)
+  await assert.rejects(cold.result(foreign, input), /不可读取/)
+  const stored = f.disk.get(session.id), originalMarker = stored.events[0]
+  stored.events[0] = { ...originalMarker, data: { ...originalMarker.data, ownerId: foreign.id } }
+  await assert.rejects(cold.result(f.owner, input), /不属于/); stored.events[0] = originalMarker
+  f.controls.preset = 'changed'; await assert.rejects(cold.result(f.owner, input), /不属于/); f.controls.preset = 'main'
+  f.controls.inspectGate = Promise.withResolvers(); const pending = cold.result(f.owner, input), rejected = assert.rejects(pending, /关闭|变化/)
+  await new Promise(resolve => setImmediate(resolve)); await cold.disposeOwner(f.owner); f.controls.inspectGate.resolve(); await rejected
+  await assert.rejects(cold.result(f.owner, input), /关闭/)
+  await cold.close(); await f.runs.close()
 })

@@ -1,3 +1,4 @@
+import type { ResultPreviewInfo } from './result-types';
 export type GroupMemberMode = 'dsh-ai' | 'cli';
 export type GroupStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
 export interface GroupMemberInput { terminalId: string; mode: GroupMemberMode; title: string }
@@ -18,7 +19,7 @@ export interface GroupOperation {
   activeMemberId?: string;
   error?: string;
 }
-export interface GroupMessage {
+export interface GroupMessage extends ResultPreviewInfo {
   id: string;
   kind: 'user' | 'reply' | 'conclusion' | 'error';
   text: string;

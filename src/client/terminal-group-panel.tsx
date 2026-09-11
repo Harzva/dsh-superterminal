@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives';
+import { NativeResultReader } from './native-result-reader';
+import { resultExcerpt } from './result-types';
+import type { ReadNativeResult } from './result-types';
 import { AgentIcon } from './agent-icon';
 import type { TerminalBridge } from './types';
 import type { GroupCandidate, GroupCreateInput, GroupMember, GroupMemberInput, GroupMessage, GroupSendInput, GroupSummary, GroupUpdateInput, TerminalGroup } from './group-types';
@@ -101,7 +104,7 @@ function GroupGlyph() {
   return <svg viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="2.5" y="5.5" width="23" height="17" rx="5"/><path d="m8 11 3 3-3 3m7 0h4"/><rect x="14.5" y="17.5" width="23" height="17" rx="5"/><path d="m20 23 3 3-3 3m7 0h4"/></svg>;
 }
 
-function GroupReply({message, member, terminalIds, onShowTerminal}: {message: GroupMessage; member?: GroupMember; terminalIds: string[]; onShowTerminal(id: string): void}) {
+function GroupReply({message, member, terminalIds, onShowTerminal, readResult}: {message: GroupMessage; member?: GroupMember; terminalIds: string[]; onShowTerminal(id: string): void; readResult: ReadNativeResult}) {
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   const isReply = message.kind === 'reply' || message.kind === 'conclusion';
   const attributed = isReply || message.kind === 'error' && !!message.memberId;
@@ -123,10 +126,11 @@ function GroupReply({message, member, terminalIds, onShowTerminal}: {message: Gr
     <div className={`dt-group-message-text${isReply ? ' dt-group-markdown' : ''}`}>
       {isReply ? <MarkdownText text={message.text} streaming={false}/> : message.text}
     </div>
+    {isReply && <NativeResultReader result={message} readResult={readResult}/>}
     {message.sharedExcerpt && <details className="dt-group-shared-record"><summary>本次共享的终端选段</summary><pre>{message.sharedExcerpt.text}</pre></details>}
     {isReply && <div className="dt-group-message-actions"><button type="button" onClick={() => {
       void (async () => {try {await navigator.clipboard.writeText(message.text);setCopied('copied');} catch {setCopied('failed');}})();
-    }}>{copied === 'copied' ? '已复制' : '复制发言'}</button>{copied === 'failed' && <span role="status">复制未成功，可选中文字手动复制。</span>}</div>}
+    }}>{copied === 'copied' ? '已复制' : message.truncated ? '复制节选' : '复制发言'}</button>{copied === 'failed' && <span role="status">复制未成功，可选中文字手动复制。</span>}</div>}
   </article>;
 }
 
@@ -290,14 +294,14 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
         <AgentIcon launcher={member.mode === 'dsh-ai' ? 'deepseek' : member.launcher}/><span><strong>{member.title}</strong><small>{modeName(member.mode)}</small></span><span aria-hidden="true">↗</span></button>)}</div>
       <div className="dt-group-timeline" ref={scroll} onScroll={() => { const node = scroll.current; if (!node) return; nearEnd.current = node.scrollHeight - node.scrollTop - node.clientHeight < 60; if (nearEnd.current) setUnseen(false); }}>
         {!group.messages.length ? <div className="dt-group-discussion-empty"><span>不同视角，同一个目标。</span><p>写下想讨论的问题，选择需要发言的成员。每条回复都会注明真实来源。</p><small>一轮收集意见；两轮会让成员参考上一轮回复。</small></div>
-          : <div className="dt-group-messages">{group.messages.map(message => <GroupReply key={message.id} message={message} member={group.members.find(member => member.id === message.memberId)} terminalIds={props.terminals.map(terminal => terminal.id)} onShowTerminal={id => {props.onShowTerminal(id);}}/>)}</div>}
+          : <div className="dt-group-messages">{group.messages.map(message => <GroupReply key={message.id} readResult={props.bridge.runResult} message={message} member={group.members.find(member => member.id === message.memberId)} terminalIds={props.terminals.map(terminal => terminal.id)} onShowTerminal={id => {props.onShowTerminal(id);}}/>)}</div>}
         {running && <div className="dt-group-progress" role="status"><i/><span>{group.operation?.kind === 'conclusion' ? '正在整理结论' : `第 ${group.operation?.round || 1} / ${group.operation?.rounds || 1} 轮`}{activeMember ? ` · 等待 ${activeMember.title}` : ' · 等待成员回复'}</span></div>}
         {group.status === 'interrupted' && <p className="dt-group-interrupted">上次讨论已中断，完成的发言仍在这里。你可以重新提出问题，继续讨论。</p>}
         {!!hasReplies && !running && <section className="dt-group-conclusion"><div><span>把讨论变成下一步</span><small>由一位成员整理共识、分歧与行动项。</small></div><label><span className="dt-group-sr-only">结论整理者</span><select aria-label="结论整理者" value={author} disabled={blocked} onChange={event => changeDraft({author: event.target.value})}>{group.members.map(member => <option value={member.id} key={member.id}>{member.title} · {modeName(member.mode)}</option>)}</select></label><button type="button" disabled={blocked || !author} onClick={() => send('conclusion')}>形成结论 ↗</button></section>}
         {latestConclusion && <div className="dt-group-handoff"><button className="dt-group-primary" type="button" disabled={blocked || running || !sourceForHandoff} onClick={() => {
           if (!sourceForHandoff) return;
           const goal = group.messages.find(message => message.kind === 'user')?.text || group.title;
-          props.onHandoff({groupId: group.id, sourceTerminalId: sourceForHandoff.id, prompt: `讨论组：${group.title}\n原目标：${goal}\n\n请根据讨论结论完成下一步，并按结论中的验收标准返回可核对的结果。`.slice(0,4000), excerpt: latestConclusion.text.slice(0,8000)});
+          props.onHandoff({groupId: group.id, sourceTerminalId: sourceForHandoff.id, prompt: `讨论组：${group.title}\n原目标：${goal}\n\n请根据讨论结论完成下一步，并按结论中的验收标准返回可核对的结果。`.slice(0,4000), excerpt: resultExcerpt(latestConclusion)});
         }}>将结论交给 Agent 执行 <span aria-hidden="true">↗</span></button><small>{sourceForHandoff ? '下一步选择执行者与验收标准，确认后才会开始。' : '原成员终端已关闭。请先添加可用终端，再安排执行。'}</small></div>}
       </div>
       {unseen && <button className="dt-group-new-replies" type="button" onClick={() => {if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;nearEnd.current=true;setUnseen(false);}}>查看最新发言 ↓</button>}

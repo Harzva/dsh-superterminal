@@ -23,7 +23,7 @@ function fixture() {
     for (const message of options.contextBefore ?? []) append('user/message', message)
     if (options.foreignBefore) append('user/message', { id: 'another-input', role: 'user' })
     if (!options.missingInput) append('user/message', options.forgedSource ? { ...sends.at(-1), source: { kind: 'user' } } : sends.at(-1))
-    if (options.queuedContext) append('agent/inbox/spliced', { inserted: [options.queuedContext] })
+    if (options.queuedContext) append('agent/inbox/spliced', { target: options.queuedTarget, inserted: [options.queuedContext] })
     for (const message of options.contextAfter ?? []) append('user/message', message)
     if (options.foreignAfter) append('user/message', { id: 'another-input', role: 'user' })
     append('assistant/message', { turn: options.wrongTurn ? 3 : 2, step: 1, interrupted: options.interrupted ?? false, message: { content: [{ type: 'text', text }] } })
@@ -43,7 +43,7 @@ test('group exclusively uses the existing native session and shares only its cor
   await assert.rejects(f.groupTurn(undefined, 'another-group-turn'), /其他任务/)
   f.finish('Only this answer')
   const result = await pending
-  assert.deepEqual(result, { text: 'Only this answer', model: 'actual-model', sessionId: f.record.sessionId })
+  assert.deepEqual(result, { text: 'Only this answer', truncated: false, totalLength: 16, resultRef: { terminalId: 'one', messageId: 'assistant-2-1' }, model: 'actual-model', sessionId: f.record.sessionId })
   assert.equal(f.record.handle, handle); assert.equal(f.runs.hasGroupLease(f.owner, 'g1'), false); assert.equal(f.sends.length, 1)
   await f.runs.send(f.owner, { terminalId: 'one', requestId: 'user-next', prompt: 'New individual task' })
   await f.runs.close()
@@ -148,4 +148,40 @@ test('an external task arriving during connection is neither steered nor cancell
   await tick(); f.agent.status = 'running'; gate.resolve(); await blocked
   assert.equal(f.sends.length, 0); assert.equal(f.agent.status, 'running'); assert.equal(f.runs.hasGroupLease(f.owner, 'g1'), false)
   await f.runs.close()
+})
+
+const agentsContext = { id: 'native-agents', role: 'user', source: { kind: 'agent-instructions', form: 'instructions', baseline: true,
+  changes: [{ action: 'set', scope: 'workspace', path: '/workspace/AGENTS.md', digest: 'content-digest' }] }, content: [{ type: 'text', text: 'PRIVATE_AGENTS_INSTRUCTIONS' }] }
+const invokedSkill = { id: 'native-invocation', role: 'user', source: { kind: 'skill-invocation', name: 'review', form: 'instructions' }, content: [{ type: 'text', text: 'PRIVATE_INVOKED_SKILL' }] }
+
+test('native AGENTS and invoked skill projections remain context, including next-step AGENTS refresh', async () => {
+  for (const options of [{ contextAfter: [agentsContext, invokedSkill] }, { contextBefore: [agentsContext, invokedSkill] },
+    { queuedContext: agentsContext, queuedTarget: 'next-step', contextAfter: [agentsContext] }]) {
+    const f = fixture(), pending = f.groupTurn(); await tick(); f.finish('Attributed final reply', options)
+    assert.equal((await pending).text, 'Attributed final reply')
+    assert.doesNotMatch(JSON.stringify(f.runs.view(f.record)), /PRIVATE_AGENTS|PRIVATE_INVOKED/)
+    await f.runs.close()
+  }
+})
+
+test('real inbox work and malformed AGENTS or skill sources still refuse attribution', async () => {
+  const malformedAgents = { ...agentsContext, source: { ...agentsContext.source, changes: [{ action: 'write', scope: 'workspace' }] } }
+  const malformedSkill = { ...invokedSkill, source: { ...invokedSkill.source, form: 'catalog' } }
+  const plain = { id: 'extra-user', role: 'user', content: [{ type: 'text', text: 'Another task' }] }
+  for (const options of [{ contextAfter: [malformedAgents] }, { contextAfter: [malformedSkill] },
+    { queuedContext: agentsContext, queuedTarget: 'next-turn', contextAfter: [agentsContext] },
+    { queuedContext: invokedSkill, queuedTarget: 'next-step', contextAfter: [invokedSkill] },
+    { queuedContext: plain, queuedTarget: 'next-step', contextAfter: [plain] },
+    { contextAfter: [agentsContext, invokedSkill], foreignAfter: true }]) {
+    const f = fixture(), pending = f.groupTurn(), rejected = assert.rejects(pending, /对应的完整结果/)
+    await tick(); f.finish('Must never be shared', options); await rejected; await f.runs.close()
+  }
+})
+
+test('long native group results preserve the real tail and explicit source reference', async () => {
+  const f = fixture(), pending = f.groupTurn(), original = 'ACTUAL_START\n' + 'x'.repeat(24000) + '\nACTUAL_FINAL_CORRECTION'
+  await tick(); f.finish(original); const reply = await pending
+  assert.equal(reply.truncated, true); assert.equal(reply.totalLength, original.length); assert.ok(reply.text.length <= 8000)
+  assert.ok(reply.text.startsWith('ACTUAL_START')); assert.ok(reply.text.endsWith('ACTUAL_FINAL_CORRECTION')); assert.match(reply.text, /省略/)
+  assert.deepEqual(reply.resultRef, { terminalId: 'one', messageId: 'assistant-2-1' }); await f.runs.close()
 })

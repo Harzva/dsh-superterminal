@@ -32,7 +32,7 @@ const packed = JSON.parse(execFileSync('tar', ['-xOf', artifact, 'package/packag
 assert.equal(packed.name, manifest.name)
 assert.equal(packed.version, manifest.version)
 const entries = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' }).trim().split('\n')
-for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/terminal-runs.mjs', 'lib/terminal-groups.mjs', 'lib/terminal-group-journal.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/terminal-runs.mjs', 'lib/native-result-text.mjs', 'lib/terminal-groups.mjs', 'lib/terminal-group-journal.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
   assert.ok(entries.includes(`package/${file}`), `Release artifact must include ${file}`)
 }
 assert.ok(entries.every(path => path.startsWith('package/') && !path.split('/').includes('..')))
@@ -63,7 +63,7 @@ if (goal === 'offline:wait' || goal === 'offline:group-wait') {
 } else {
   emit({ type: 'message_end', message: { role: 'assistant', stopReason: failed ? 'error' : 'stop',
     errorMessage: failed ? 'Offline protocol fixture failure' : undefined,
-    content: [{ type: 'text', text: failed ? '' : goal === 'offline:group-conclusion' ? 'VERIFIED_GROUP_CONCLUSION' : group ? 'VERIFIED_GROUP_REPLY' : 'VERIFIED_NATIVE_HANDOFF' }] } })
+    content: [{ type: 'text', text: failed ? '' : goal === 'offline:group-long' ? 'LONG_REPLY_START' + 'x'.repeat(18000) + 'LONG_REPLY_END' : goal === 'offline:group-conclusion' ? 'VERIFIED_GROUP_CONCLUSION' : group ? 'VERIFIED_GROUP_REPLY' : 'VERIFIED_NATIVE_HANDOFF' }] } })
   emit({ type: 'agent_end', willRetry: false })
 }
 `, { mode: 0o700 })
@@ -318,6 +318,10 @@ try {
   }
   await assert.rejects(call('runState', { terminalId: sidePty.id }), /没有这个终端/)
   await assert.rejects(callOwner(side.sessionId, 'runState', { terminalId: terminals[0].id }), /没有这个终端/)
+  for (const ownerId of [sessionId, side.sessionId]) {
+    await assert.rejects(callOwner(ownerId, 'runResult', { terminalId: terminals[0].id, messageId: 'assistant-1-0', offset: 0 }))
+  }
+  await assert.rejects(call('runResult', { terminalId: terminals[0].id, messageId: 'assistant-1-0', offset: 0, limit: 16001 }))
   const sessionsAfterState = (await rpc('session.list', {})).items
   assert.deepEqual(sessionsAfterState.map(item => item.sessionId).sort(), sessionBaseline,
     'Polling empty execution state must not allocate a native Agent session')
@@ -327,6 +331,7 @@ try {
   assert.deepEqual((await callOwner(side.sessionId, 'list', {})).terminals.map(entry => entry.id), [sidePty.id])
   report.checks.nativeRunEmptyStateDoesNotAllocateOrExecute = true
   report.checks.nativeRunReadOwnerIsolation = true
+  report.checks.nativeResultReadDoesNotAllocateOrExecute = true
 
   handoffOwner = side.sessionId
   const handoffCall = (method, request = {}) => callOwner(handoffOwner, method, request)
@@ -446,6 +451,48 @@ try {
   report.checks.packedGroupDedupeOwnerIsolationAndUntouchedPtys = true
   report.checks.groupCandidateReadDoesNotAllocateNativeSession = true
 
+  // Completed discussion turns retain their replay identities, but do not
+  // consume the separate execution/rework record budget.
+  for (let meeting = 0; meeting < 7; meeting++) {
+    const input = { ...completedGroupInput, requestId: randomUUID() }
+    await handoffCall('groupSend', input)
+    await until(async () => {
+      const group = await handoffCall('groupRead', { groupId: completedGroup.id })
+      if (group.status === 'failed') throw new Error(`Repeated discussion failed: ${group.operation?.error}`)
+      return group.status === 'completed' && group.messages.filter(message => message.requestId === input.requestId && message.kind === 'reply').length === 4
+    }, 'discussion remains available beyond the execution record budget', 20000)
+  }
+  const retainedDiscussions = (await handoffCall('handoffList')).tasks.filter(task => task.groupPurpose === 'discussion')
+  assert.equal(retainedDiscussions.length, 33)
+  const executionList = (await handoffCall('handoffList', { includeDiscussions: false })).tasks
+  assert.ok(executionList.length > 0 && executionList.every(task => task.groupPurpose !== 'discussion'))
+  const afterDiscussions = await handoffCall('handoffStart', { ...handoffInput, requestId: randomUUID() })
+  assert.ok(afterDiscussions.id && !afterDiscussions.rejected)
+  await until(async () => (await handoffCall('handoffList')).tasks.some(task => task.id === afterDiscussions.id && task.status === 'succeeded'), 'execution is still available after 33 discussion records')
+  const afterDiscussionRework = await handoffCall('handoffRework', { taskId: afterDiscussions.id, requestId: randomUUID(), issues: 'Verify the retained discussion does not block rework.', returnToConversation: false })
+  assert.ok(afterDiscussionRework.id && !afterDiscussionRework.rejected)
+  await until(async () => (await handoffCall('handoffList')).tasks.some(task => task.id === afterDiscussionRework.id && task.status === 'succeeded'), 'rework is still available after 33 discussion records')
+  const retainedSpawnCount = (await spawnedJobs()).length
+  await handoffCall('groupSend', completedGroupInput)
+  assert.equal((await spawnedJobs()).length, retainedSpawnCount, 'Old discussion identities still prevent duplicate execution')
+  report.checks.packedDiscussionBudgetPreservesExecutionReworkAndDedupe = true
+
+  await handoffCall('groupSend', { groupId: completedGroup.id, requestId: randomUUID(), prompt: 'offline:group-long',
+    targets: [completedGroup.members[0].id], rounds: 1, kind: 'discussion' })
+  await until(async () => {
+    const group = await handoffCall('groupRead', { groupId: completedGroup.id })
+    if (group.status === 'failed') throw new Error(`Long reply fixture failed: ${group.operation?.error}`)
+    if (group.status !== 'completed') return false
+    const reply = group.messages.at(-1)
+    assert.equal(reply.kind, 'reply'); assert.equal(reply.truncated, true)
+    assert.equal(reply.sourceTruncated, true); assert.equal(reply.totalLength, 'LONG_REPLY_START'.length + 18000 + 'LONG_REPLY_END'.length)
+    assert.ok(reply.text.length <= 16000 && reply.text.startsWith('LONG_REPLY_START'))
+    assert.equal(reply.resultRef, undefined, 'CLI results must not advertise a nonexistent full native original')
+    completedGroup = group
+    return true
+  }, 'long CLI discussion records explicitly distinguish retained preview from full original')
+  report.checks.packedCliLongReplyTruncationIsExplicit = true
+
   stoppedGroup = await handoffCall('groupCreate', { requestId: randomUUID(), title: 'Offline cancellation discussion', members: [createGroupInput.members[0]] })
   stoppedGroupInput = { groupId: stoppedGroup.id, requestId: randomUUID(), prompt: 'offline:group-wait', targets: [stoppedGroup.members[0].id], rounds: 1, kind: 'discussion' }
   await handoffCall('groupSend', stoppedGroupInput)
@@ -501,8 +548,8 @@ try {
   report.checks.packedHandoffColdRestoreNoRerun = true
   const restoredGroup = await callOwner(restored.sessionId, 'groupRead', { groupId: completedGroup.id })
   assert.equal(restoredGroup.status, 'completed')
-  assert.equal(restoredGroup.messages.filter(message => message.kind === 'reply').length, 4)
-  assert.equal(restoredGroup.messages.at(-1).text, 'VERIFIED_GROUP_CONCLUSION')
+  assert.deepEqual(restoredGroup.messages, completedGroup.messages)
+  assert.equal(restoredGroup.messages.at(-1).sourceTruncated, true)
   const restoredStoppedGroup = await callOwner(restored.sessionId, 'groupRead', { groupId: stoppedGroup.id })
   assert.ok(['interrupted', 'cancelled'].includes(restoredStoppedGroup.status))
   assert.equal((await callOwner(restored.sessionId, 'groupSend', stoppedGroupInput)).status, restoredStoppedGroup.status)
@@ -511,7 +558,7 @@ try {
   assert.equal((await spawnedJobs()).length, spawnCountBeforeRestart)
   assert.equal((await callOwner(restored.sessionId, 'groupArchive', { groupId: completedGroup.id })).archived, true)
   assert.ok(!(await callOwner(restored.sessionId, 'groupList', {})).groups.some(group => group.id === completedGroup.id))
-  assert.equal((await callOwner(restored.sessionId, 'groupRead', { groupId: completedGroup.id })).messages.at(-1).text, 'VERIFIED_GROUP_CONCLUSION')
+  assert.deepEqual((await callOwner(restored.sessionId, 'groupRead', { groupId: completedGroup.id })).messages, completedGroup.messages)
   report.checks.packedGroupColdRestoreArchiveAndNoReplay = true
   const restoredPty = await createPty(restored.sessionId)
   await write(restoredPty, "printf 'SIDE_TERMINAL_RESUMED\\n'\r")
