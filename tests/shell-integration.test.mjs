@@ -64,7 +64,10 @@ for (const shell of ['zsh', 'bash']) test(`real ${shell} PTY records success/fai
   const stop = ptyExitBarrier(pty)
   let display = ''
   const listener = pty.onData(data => { display += integration.journal.feed(data) })
-  const until = async predicate => { const end = Date.now() + 5000; while (!predicate()) { if (Date.now() > end) throw new Error('Shell protocol did not settle'); await delay(10) } }
+  const until = async predicate => { const end = Date.now() + 5000; while (!predicate()) {
+    if (Date.now() > end) throw new Error(`Shell protocol did not settle: ${JSON.stringify({ shell, journal: integration.journal.snapshot().status, fixtureOutput: display.slice(-2000) })}`)
+    await delay(10)
+  } }
   try {
     await until(() => integration.journal.snapshot().status === 'ready')
     assert.ok(display.includes('USER_RC_LOADED'))
