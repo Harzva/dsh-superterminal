@@ -32,7 +32,7 @@ const packed = JSON.parse(execFileSync('tar', ['-xOf', artifact, 'package/packag
 assert.equal(packed.name, manifest.name)
 assert.equal(packed.version, manifest.version)
 const entries = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' }).trim().split('\n')
-for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/terminal-runs.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/terminal-runs.mjs', 'lib/terminal-groups.mjs', 'lib/terminal-group-journal.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
   assert.ok(entries.includes(`package/${file}`), `Release artifact must include ${file}`)
 }
 assert.ok(entries.every(path => path.startsWith('package/') && !path.split('/').includes('..')))
@@ -52,15 +52,18 @@ import { appendFileSync } from 'node:fs'
 let input = ''
 for await (const chunk of process.stdin) input += chunk
 const task = JSON.parse(input.slice(input.indexOf('\\n') + 1))
+const goal = task.task.match(/本次用户目标：\\n([\\s\\S]*?)\\n\\n共享讨论材料/)?.[1] ?? task.task
+const group = goal.startsWith('offline:group-')
+const failed = goal === 'offline:error' || goal === 'offline:group-error'
 appendFileSync('protocol-spawns.jsonl', JSON.stringify({ id: process.env.DSH_HANDOFF_TASK_ID, pid: process.pid }) + '\\n')
 const emit = value => process.stdout.write(JSON.stringify(value) + '\\n')
 emit({ type: 'agent_start' })
-if (task.task === 'offline:wait') {
+if (goal === 'offline:wait' || goal === 'offline:group-wait') {
   setInterval(() => {}, 1000)
 } else {
-  emit({ type: 'message_end', message: { role: 'assistant', stopReason: task.task === 'offline:error' ? 'error' : 'stop',
-    errorMessage: task.task === 'offline:error' ? 'Offline protocol fixture failure' : undefined,
-    content: [{ type: 'text', text: task.task === 'offline:error' ? '' : 'VERIFIED_NATIVE_HANDOFF' }] } })
+  emit({ type: 'message_end', message: { role: 'assistant', stopReason: failed ? 'error' : 'stop',
+    errorMessage: failed ? 'Offline protocol fixture failure' : undefined,
+    content: [{ type: 'text', text: failed ? '' : goal === 'offline:group-conclusion' ? 'VERIFIED_GROUP_CONCLUSION' : group ? 'VERIFIED_GROUP_REPLY' : 'VERIFIED_NATIVE_HANDOFF' }] } })
   emit({ type: 'agent_end', willRetry: false })
 }
 `, { mode: 0o700 })
@@ -150,7 +153,8 @@ const port = await new Promise((resolvePort, reject) => {
 })
 const base = `http://127.0.0.1:${port}`
 const command = [cli, '--profile', 'web', '--host', '127.0.0.1', '--port', String(port), '--no-open']
-const report = { schema: 1, artifactSha256: createHash('sha256').update(artifactBytes).digest('hex'), pluginVersion: manifest.version, dshVersion, runtimePackages, runtimePackageSources, fixture, profile, workspace, cli, port, command, checks: {}, cleanup: {}, startedAt: new Date().toISOString() }
+const report = { schema: 1, artifactSha256: createHash('sha256').update(artifactBytes).digest('hex'), pluginVersion: manifest.version, dshVersion, runtimePackages, runtimePackageSources, fixture, profile, workspace, cli, port, command,
+  groupEvidence: { kind: 'offline-protocol-simulator', realModelVerified: false }, checks: {}, cleanup: {}, startedAt: new Date().toISOString() }
 await writeFile(join(fixture, 'restart.json'), JSON.stringify({ executable: process.execPath, args: command, cwd: workspace, env: childEnv }, null, 2) + '\n')
 let server
 let logs = ''
@@ -158,6 +162,8 @@ let sessionId
 const terminals = []
 const spawnedJobs = async () => { try { return (await readFile(join(workspace, 'protocol-spawns.jsonl'), 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) } catch (error) { if (error.code === 'ENOENT') return []; throw error } }
 let handoffOwner, handoffInput, finishedHandoff, interruptedHandoff, reviewedHandoff
+let completedGroup, completedGroupInput, stoppedGroup, stoppedGroupInput, spawnCountBeforeRestart
+let crashCleanupPids = []
 let failure
 
 async function rpc(method, payload) {
@@ -221,8 +227,8 @@ async function createSource(cwd = workspace) {
   return id
 }
 
-async function createPty(ownerId) {
-  const opened = await callOwner(ownerId, 'open', { launcher: 'shell', requestId: randomUUID(), rows: 24, cols: 80 })
+async function createPty(ownerId, launcher = 'shell') {
+  const opened = await callOwner(ownerId, 'open', { launcher, requestId: randomUUID(), rows: 24, cols: 80 })
   const entry = { ...opened, ownerSessionId: ownerId, offset: 0, output: '', endedByRestart: false }
   terminals.push(entry)
   const claim = await callOwner(ownerId, 'claim', { terminalId: entry.id, viewerId: `verification-${randomUUID()}` })
@@ -369,8 +375,102 @@ try {
   await until(async () => (await spawnedJobs()).some(job => job.id === cancelled.id), 'cancellable process starts')
   assert.equal((await handoffCall('handoffCancel', { taskId: cancelled.id })).status, 'cancelled')
   await until(async () => (await spawnedJobs()).filter(job => job.id === cancelled.id).every(job => !alive(job.pid)), 'cancelled process is gone')
+
+  // These are real installed Group RPCs, storage domains and managed child
+  // processes. Only the child response protocol is simulated, never a model.
+  const groupPtys = [await createPty(handoffOwner, 'pi'), await createPty(handoffOwner, 'pi')]
+  const beforeGroupInventory = (await rpc('session.list', {})).items.map(item => item.sessionId).sort()
+  const groupInventory = await handoffCall('groupList')
+  for (const entry of groupPtys) {
+    const candidate = groupInventory.candidates.find(row => row.terminalId === entry.id)
+    assert.equal(candidate.launcher, 'pi')
+    assert.equal(candidate.modes.find(row => row.mode === 'cli').available, true)
+  }
+  assert.deepEqual((await rpc('session.list', {})).items.map(item => item.sessionId).sort(), beforeGroupInventory,
+    'Group candidates must not allocate native Agent sessions')
+  const createGroupInput = { requestId: randomUUID(), title: 'Offline protocol discussion', members: groupPtys.map((entry, index) => ({
+    terminalId: entry.id, mode: 'cli', title: `Protocol participant ${index + 1}`,
+  })) }
+  completedGroup = await handoffCall('groupCreate', createGroupInput)
+  assert.equal((await handoffCall('groupCreate', createGroupInput)).id, completedGroup.id)
+  assert.deepEqual(completedGroup.members.map(member => member.launcher), ['pi', 'pi'])
+  await assert.rejects(call('groupRead', { groupId: completedGroup.id }), /当前会话/)
+  await assert.rejects(call('groupCreate', { ...createGroupInput, requestId: randomUUID() }), /当前会话|不属于/)
+  const beforeInvalidGroup = (await handoffCall('groupList')).groups.map(group => group.id).sort()
+  // The public gateway may replace Zod's Chinese validation detail with its
+  // generic RPC error. Assert rejection at this endpoint and no allocation,
+  // rather than requiring a private validation message to cross the gateway.
+  await assert.rejects(handoffCall('groupCreate', { ...createGroupInput, requestId: randomUUID(), members: [createGroupInput.members[0], createGroupInput.members[0]] }), /dshTerminal\/groupCreate:/)
+  assert.deepEqual((await handoffCall('groupList')).groups.map(group => group.id).sort(), beforeInvalidGroup)
+  completedGroupInput = { groupId: completedGroup.id, requestId: randomUUID(), prompt: 'offline:group-complete',
+    targets: completedGroup.members.map(member => member.id), rounds: 2, kind: 'discussion', excerpt: { terminalId: sidePty.id, text: 'EXPLICIT_OFFLINE_GROUP_MATERIAL' } }
+  await handoffCall('groupSend', completedGroupInput)
+  await until(async () => {
+    const group = await handoffCall('groupRead', { groupId: completedGroup.id })
+    if (group.status === 'failed') throw new Error(`Group protocol fixture failed: ${group.operation?.error}`)
+    if (group.status !== 'completed') return false
+    const replies = group.messages.filter(message => message.kind === 'reply')
+    assert.equal(replies.length, 4)
+    assert.deepEqual(replies.map(reply => reply.round), [1, 1, 2, 2])
+    for (const reply of replies) {
+      assert.equal(reply.text, 'VERIFIED_GROUP_REPLY'); assert.equal(reply.mode, 'cli'); assert.equal(reply.launcher, 'pi')
+      assert.ok(groupPtys.some(entry => entry.id === reply.terminalId)); assert.equal(reply.model, undefined)
+      assert.ok(reply.taskId)
+    }
+    assert.equal(new Set(replies.map(reply => reply.taskId)).size, 4)
+    completedGroup = group; return true
+  }, 'installed group completes two rounds through the offline protocol simulator', 20000)
+  const groupChildren = (await handoffCall('handoffList')).tasks.filter(task => task.sourceGroupId === completedGroup.id)
+  assert.equal(groupChildren.length, 4)
+  assert.ok(groupChildren.every(task => task.groupPurpose === 'discussion' && task.returnToConversation === false && task.delivery === 'none'))
+  for (const task of groupChildren) assert.equal((await spawnedJobs()).filter(job => job.id === task.id).length, 1)
+  const groupSpawnBaseline = (await spawnedJobs()).length
+  assert.equal((await handoffCall('groupSend', completedGroupInput)).id, completedGroup.id)
+  await assert.rejects(handoffCall('groupSend', { ...completedGroupInput, prompt: 'changed request' }), /标识/)
+  await assert.rejects(call('groupSend', completedGroupInput), /当前会话/)
+  assert.equal((await spawnedJobs()).length, groupSpawnBaseline)
+  for (const entry of groupPtys) {
+    const original = await handoffCall('read', { terminalId: entry.id, offset: 0 })
+    assert.doesNotMatch(original.data, /offline:group|VERIFIED_GROUP_REPLY|EXPLICIT_OFFLINE_GROUP_MATERIAL/, 'Discussion input and reply must never be injected into the existing PTY')
+  }
+  await handoffCall('groupSend', { groupId: completedGroup.id, requestId: randomUUID(), prompt: 'offline:group-conclusion',
+    targets: [completedGroup.members[0].id], rounds: 1, kind: 'conclusion' })
+  await until(async () => {
+    const group = await handoffCall('groupRead', { groupId: completedGroup.id })
+    if (group.status === 'failed') throw new Error(`Group conclusion fixture failed: ${group.operation?.error}`)
+    if (group.status !== 'completed') return false
+    assert.equal(group.messages.at(-1).kind, 'conclusion'); assert.equal(group.messages.at(-1).text, 'VERIFIED_GROUP_CONCLUSION')
+    return true
+  }, 'one explicit member forms an offline protocol conclusion')
+  report.checks.packedGroupProtocolRoundsConclusionAndIdentity = true
+  report.checks.packedGroupDedupeOwnerIsolationAndUntouchedPtys = true
+  report.checks.groupCandidateReadDoesNotAllocateNativeSession = true
+
+  stoppedGroup = await handoffCall('groupCreate', { requestId: randomUUID(), title: 'Offline cancellation discussion', members: [createGroupInput.members[0]] })
+  stoppedGroupInput = { groupId: stoppedGroup.id, requestId: randomUUID(), prompt: 'offline:group-wait', targets: [stoppedGroup.members[0].id], rounds: 1, kind: 'discussion' }
+  await handoffCall('groupSend', stoppedGroupInput)
+  let stoppedGroupTask
+  await until(async () => {
+    stoppedGroupTask = (await handoffCall('handoffList')).tasks.find(task => task.sourceGroupId === stoppedGroup.id)
+    return stoppedGroupTask && (await spawnedJobs()).some(job => job.id === stoppedGroupTask.id)
+  }, 'group cancellation protocol process starts')
+  await assert.rejects(handoffCall('groupUpdate', { ...createGroupInput, groupId: stoppedGroup.id, requestId: randomUUID() }), /等待|停止/)
+  await assert.rejects(call('groupStop', { groupId: stoppedGroup.id }), /当前会话/)
+  const stopped = await handoffCall('groupStop', { groupId: stoppedGroup.id })
+  assert.equal(stopped.status, 'cancelled'); assert.equal(stopped.messages.filter(message => message.kind === 'reply').length, 0)
+  await until(async () => (await spawnedJobs()).filter(job => job.id === stoppedGroupTask.id).every(job => !alive(job.pid)), 'explicit group stop drains only its child process')
+  assert.equal((await handoffCall('groupSend', stoppedGroupInput)).status, 'cancelled')
+  assert.equal((await spawnedJobs()).filter(job => job.id === stoppedGroupTask.id).length, 1)
+  report.checks.packedGroupStopAndCancelledRequestNoReplay = true
+  stoppedGroupInput = { ...stoppedGroupInput, requestId: randomUUID() }
+  await handoffCall('groupSend', stoppedGroupInput)
+  await until(async () => {
+    const task = (await handoffCall('handoffList')).tasks.find(task => task.sourceGroupId === stoppedGroup.id && task.id !== stoppedGroupTask.id)
+    return task && (await spawnedJobs()).some(job => job.id === task.id)
+  }, 'group child is running before graceful restart')
   interruptedHandoff = await handoffCall('handoffStart', { ...handoffInput, requestId: randomUUID(), prompt: 'offline:wait' })
   await until(async () => (await spawnedJobs()).some(job => job.id === interruptedHandoff.id), 'restart-interrupted process starts')
+  spawnCountBeforeRestart = (await spawnedJobs()).length
   report.checks.packedHandoffFailureAndCancellation = true
 
   // Graceful cold restart proves that the dedicated owner is durable while
@@ -396,9 +496,23 @@ try {
   report.checks.packedAcceptanceSurvivesColdRestart = true
   assert.ok(['interrupted', 'cancelled'].includes(records.find(task => task.id === interruptedHandoff.id)?.status), 'unfinished task must remain stopped after graceful restart')
   assert.equal((await callOwner(restored.sessionId, 'handoffStart', handoffInput)).id, finishedHandoff.id)
-  assert.equal((await spawnedJobs()).length, 5, 'restore/retry must not start new processes')
+  assert.equal((await spawnedJobs()).length, spawnCountBeforeRestart, 'restore/retry must not start new processes')
   assert.ok((await spawnedJobs()).every(job => !alive(job.pid)))
   report.checks.packedHandoffColdRestoreNoRerun = true
+  const restoredGroup = await callOwner(restored.sessionId, 'groupRead', { groupId: completedGroup.id })
+  assert.equal(restoredGroup.status, 'completed')
+  assert.equal(restoredGroup.messages.filter(message => message.kind === 'reply').length, 4)
+  assert.equal(restoredGroup.messages.at(-1).text, 'VERIFIED_GROUP_CONCLUSION')
+  const restoredStoppedGroup = await callOwner(restored.sessionId, 'groupRead', { groupId: stoppedGroup.id })
+  assert.ok(['interrupted', 'cancelled'].includes(restoredStoppedGroup.status))
+  assert.equal((await callOwner(restored.sessionId, 'groupSend', stoppedGroupInput)).status, restoredStoppedGroup.status)
+  assert.equal((await callOwner(restored.sessionId, 'groupSend', completedGroupInput)).id, completedGroup.id)
+  await assert.rejects(call('groupRead', { groupId: completedGroup.id }), /当前会话/)
+  assert.equal((await spawnedJobs()).length, spawnCountBeforeRestart)
+  assert.equal((await callOwner(restored.sessionId, 'groupArchive', { groupId: completedGroup.id })).archived, true)
+  assert.ok(!(await callOwner(restored.sessionId, 'groupList', {})).groups.some(group => group.id === completedGroup.id))
+  assert.equal((await callOwner(restored.sessionId, 'groupRead', { groupId: completedGroup.id })).messages.at(-1).text, 'VERIFIED_GROUP_CONCLUSION')
+  report.checks.packedGroupColdRestoreArchiveAndNoReplay = true
   const restoredPty = await createPty(restored.sessionId)
   await write(restoredPty, "printf 'SIDE_TERMINAL_RESUMED\\n'\r")
   await readUntil(restoredPty, '\r\nSIDE_TERMINAL_RESUMED\r\n')
@@ -409,13 +523,63 @@ try {
   const html = await (await fetch(base)).text()
   assert.ok(html.includes('<html'))
   report.checks.webArtifactServed = true
+
+  // A separate crash probe distinguishes journal recovery from the graceful
+  // cancellation above. The killed server and every explicitly drained PID
+  // were created by this fixture; it never signals an existing DSH or user CLI.
+  const crashPty = await createPty(restored.sessionId, 'pi')
+  const crashGroup = await callOwner(restored.sessionId, 'groupCreate', { requestId: randomUUID(), title: 'Offline crash recovery',
+    members: [{ terminalId: crashPty.id, mode: 'cli', title: 'Crash protocol participant' }] })
+  const crashInput = { groupId: crashGroup.id, requestId: randomUUID(), prompt: 'offline:group-wait',
+    targets: [crashGroup.members[0].id], rounds: 1, kind: 'discussion' }
+  await callOwner(restored.sessionId, 'groupSend', crashInput)
+  let crashTask, crashProcess
+  await until(async () => {
+    crashTask = (await callOwner(restored.sessionId, 'handoffList', {})).tasks.find(task => task.sourceGroupId === crashGroup.id)
+    crashProcess = crashTask && (await spawnedJobs()).find(job => job.id === crashTask.id)
+    return crashProcess && alive(crashProcess.pid)
+  }, 'crash probe group process starts')
+  assert.equal((await callOwner(restored.sessionId, 'groupRead', { groupId: crashGroup.id })).status, 'running')
+  const beforeCrashSpawns = (await spawnedJobs()).length
+  const crashPtys = terminals.filter(entry => !entry.endedByRestart)
+  const ownedCrashPids = [...new Set([...crashPtys.map(entry => entry.pid), crashProcess.pid])]
+  crashCleanupPids = ownedCrashPids
+  server.kill('SIGKILL')
+  await until(() => server.exitCode !== null || server.signalCode !== null, 'fixture server crash exits', 5000)
+  const signalOwned = signal => {
+    for (const pid of ownedCrashPids) {
+      if (!alive(pid)) continue
+      try { process.kill(pid, signal) } catch (error) { if (error.code !== 'ESRCH') throw error }
+    }
+  }
+  signalOwned('SIGTERM')
+  try { await until(() => ownedCrashPids.every(pid => !alive(pid)), 'fixture crash children stop', 3000) }
+  catch { signalOwned('SIGKILL'); await until(() => ownedCrashPids.every(pid => !alive(pid)), 'fixture crash children are drained', 3000) }
+  for (const entry of crashPtys) entry.endedByRestart = true
+  report.checks.fixtureCrashProcessesExplicitlyDrained = true
+  await bootServer()
+  sessionId = await createSource()
+  const crashOwner = await call('independent', { sessionId: side.sessionId })
+  assert.equal(crashOwner.restored, true)
+  const interruptedGroup = await callOwner(crashOwner.sessionId, 'groupRead', { groupId: crashGroup.id })
+  assert.equal(interruptedGroup.status, 'interrupted')
+  assert.equal(interruptedGroup.operation.status, 'interrupted')
+  assert.equal(interruptedGroup.operation.activeMemberId, undefined)
+  assert.equal(interruptedGroup.messages.filter(message => message.kind === 'reply').length, 0)
+  assert.equal((await callOwner(crashOwner.sessionId, 'handoffList', {})).tasks.find(task => task.id === crashTask.id)?.status, 'interrupted')
+  assert.equal((await callOwner(crashOwner.sessionId, 'groupSend', crashInput)).status, 'interrupted')
+  await assert.rejects(call('groupRead', { groupId: crashGroup.id }), /当前会话/)
+  assert.deepEqual((await callOwner(crashOwner.sessionId, 'list', {})).terminals, [])
+  assert.equal((await spawnedJobs()).length, beforeCrashSpawns, 'Crash recovery must not replay an accepted group or child request')
+  assert.ok((await spawnedJobs()).every(job => !alive(job.pid)))
+  report.checks.packedGroupCrashRecoveryInterruptedWithoutReplay = true
 } catch (error) {
   failure = error
   report.failure = { name: error.name, message: error.code === 'ERR_ASSERTION' ? 'Verification assertion failed; terminal output omitted' : error.message,
     location: error.stack?.split('\n').find(line=>line.includes('verify-dsh-offline.mjs:'))?.trim() }
 } finally {
   const errors = []
-  if (server && server.exitCode === null) {
+  if (server && server.exitCode === null && server.signalCode === null) {
     for (const entry of terminals.filter(entry => !entry.endedByRestart)) {
       try {
         await callOwner(entry.ownerSessionId, 'close', { terminalId: entry.id, lease: entry.lease ?? 'verification-settled' })
@@ -429,6 +593,14 @@ try {
       if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL')
       errors.push('Official DSH did not complete its normal shutdown deadline')
     }
+  }
+  // Also drain the explicitly captured crash-fixture children if an assertion
+  // interrupted the crash/reboot sequence before its normal cleanup finished.
+  for (const signal of ['SIGTERM', 'SIGKILL']) {
+    for (const pid of crashCleanupPids) {
+      try { if (alive(pid)) process.kill(pid, signal) } catch (error) { if (error.code !== 'ESRCH') errors.push('Could not signal a crash-fixture child') }
+    }
+    if (crashCleanupPids.some(pid => alive(pid))) await delay(200)
   }
   try { await until(() => terminals.every(entry => !alive(entry.pid)), 'owned PTY cleanup', 5000); report.cleanup.ptyProcessesGone = true }
   catch (error) { report.cleanup.ptyProcessesGone = false; errors.push(error.message) }

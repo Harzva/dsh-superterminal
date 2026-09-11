@@ -1,13 +1,27 @@
 import { z } from 'zod'
 
 const boundedId = z.string().min(1).max(128)
+const groupMember = z.object({ terminalId: boundedId, mode: z.enum(['dsh-ai', 'cli']), title: z.string().trim().min(1).max(120) }).strict()
+const groupMembers = z.array(groupMember).min(1).max(6).refine(members => new Set(members.map(member => member.terminalId)).size === members.length, '每个终端只能加入一次')
 const dimensions = { rows: z.number().int().min(2).max(500), cols: z.number().int().min(10).max(1000) }
 export const requests = {
+  groupList: z.object({}).strict(),
+  groupRead: z.object({ groupId: boundedId }).strict(),
+  groupCreate: z.object({ requestId: boundedId, title: z.string().trim().min(1).max(120), members: groupMembers }).strict(),
+  groupUpdate: z.object({ groupId: boundedId, requestId: boundedId, title: z.string().trim().min(1).max(120), members: groupMembers }).strict(),
+  groupSend: z.object({ groupId: boundedId, requestId: boundedId, prompt: z.string().trim().min(1).max(4000),
+    targets: z.array(boundedId).min(1).max(6).refine(targets => new Set(targets).size === targets.length, '参会者不能重复'),
+    rounds: z.number().int().min(1).max(2), kind: z.enum(['discussion', 'conclusion']),
+    excerpt: z.object({ terminalId: boundedId, text: z.string().trim().min(1).max(4000) }).strict().optional(),
+  }).strict().refine(input => input.kind !== 'conclusion' || (input.targets.length === 1 && input.rounds === 1), '请选择一位成员整理结论'),
+  groupStop: z.object({ groupId: boundedId }).strict(),
+  groupArchive: z.object({ groupId: boundedId }).strict(),
   list: z.object({}).strict(),
   runState: z.object({ terminalId: boundedId }).strict(),
   runSend: z.object({ terminalId: boundedId, requestId: boundedId, prompt: z.string().trim().min(1).max(8000), excerpt: z.string().trim().max(8000).optional() }).strict(),
   runStop: z.object({ terminalId: boundedId }).strict(),
   handoffStart: z.object({ requestId: boundedId, sourceTerminalId: boundedId,
+    sourceGroupId: boundedId.optional(),
     targetLauncher: z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/), prompt: z.string().trim().min(1).max(4000),
     excerpt: z.string().trim().max(8000).optional(), criteria: z.string().trim().max(2000).optional(),
     returnToConversation: z.boolean().optional() }).strict(),

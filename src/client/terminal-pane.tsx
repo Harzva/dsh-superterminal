@@ -22,6 +22,8 @@ type Props = {
   naturalOpen?: boolean;
   onNaturalToggle?(open: boolean): void;
   onTitleChange?(title: string): void;
+  onAddToGroup?(): void;
+  onGroupDragStart?(event: React.DragEvent): void;
   onHide?(): void;
   onSelection?(text: string): void;
   onSelectionAction?(action: 'execute' | 'explain' | 'fix' | 'handoff', text: string): void;
@@ -427,7 +429,12 @@ export function TerminalPane(props: Props) {
       }}
       onFocusCapture={props.onFocus}>
       <style>{naturalCss}</style>
-      <header className="dt-pane-bar">
+      <header className="dt-pane-bar" draggable={Boolean(props.onGroupDragStart) && !editingTitle}
+        onDragStart={event => {
+          const target = event.target as HTMLElement;
+          if (editingTitle || target.closest('input,textarea') || (target.closest('button') && !target.closest('.dt-pane-title,.dt-pane-group'))) {event.preventDefault();return;}
+          props.onGroupDragStart?.(event);
+        }}>
         <AgentIcon launcher={props.terminal.launcher} />
         <span className="dt-pane-number">{String(props.number).padStart(2, '0')}</span>
         {editingTitle ? <input className="dt-title-input" autoFocus maxLength={48}
@@ -438,12 +445,14 @@ export function TerminalPane(props: Props) {
             event.stopPropagation();
             if (event.key === 'Enter') { event.preventDefault(); commitTitle(); }
             if (event.key === 'Escape') { event.preventDefault(); setEditingTitle(false); }
-          }} /> : <button className="dt-pane-title" title={`${props.terminal.launcher} · 点击命名任务`}
+          }} /> : <button className="dt-pane-title" draggable={Boolean(props.onGroupDragStart)} title={`${props.terminal.launcher} · 点击命名任务`}
           aria-label={`重命名终端 ${props.number}`} onClick={() => { setTitleDraft(title); setEditingTitle(true); }}>
           {title || props.terminal.launcher}</button>}
         <span className={`dt-state dt-state-${state}`}>{props.connected ? stateLabel(state, exitCode) : '连接中断'}</span>
         {bell && <button className="dt-bell" onClick={() => setBell(false)} title="清除终端响铃标记">终端响铃 ×</button>}
         <span className="dt-pane-spacer" />
+        {props.onAddToGroup && <button type="button" className="dt-icon-button dt-pane-group" draggable={Boolean(props.onGroupDragStart)} onClick={props.onAddToGroup}
+          aria-label={`将终端 ${props.number} 加入讨论组`} title="加入讨论组，也可拖动标题到组名">◎</button>}
         <button className="dt-split-button" onClick={() => props.onSplit('x')} title="左右分割，添加空窗格"
           aria-label={`左右分割终端 ${props.number}`}>◫</button>
         <button className="dt-split-button" onClick={() => props.onSplit('y')} title="上下分割，添加空窗格"

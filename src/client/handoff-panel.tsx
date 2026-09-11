@@ -24,7 +24,7 @@ export function useHandoffs(bridge: TerminalBridge, active: boolean) {
     try {
       const result = await owner.handoffList();
       if (!alive.current || round !== generation.current || owner !== currentBridge.current) return;
-      setTasks(result.tasks); setTargets(result.targets); setError(''); setLoaded(true);
+      setTasks(result.tasks.filter(task => task.groupPurpose !== 'discussion')); setTargets(result.targets); setError(''); setLoaded(true);
     } catch {
       if (alive.current && round === generation.current && owner === currentBridge.current) {
         setError('协作记录暂时无法连接，正在重试。'); setLoaded(true);
@@ -46,7 +46,7 @@ export function useHandoffs(bridge: TerminalBridge, active: boolean) {
 }
 
 type Source = Pick<TerminalSummary, 'id' | 'launcher'> & { title?: string };
-export type HandoffSeed = {id: string; sessionId: string; sourceTerminalId: string; prompt: string; excerpt: string};
+export type HandoffSeed = {id: string; sessionId: string; sourceTerminalId: string; sourceGroupId?: string; prompt: string; excerpt: string};
 type Props = {
   bridge: TerminalBridge; sessionId: string; conversationTitle: string; source?: Source;
   excerpt?: {terminalId: string; text: string}; tasks: HandoffTask[]; targets: HandoffTarget[];
@@ -55,7 +55,7 @@ type Props = {
   availableTerminalIds: string[]; onShowTerminal(id: string): boolean; onShowConversation?(): void;
   seed?: HandoffSeed;
 };
-type Draft = { target: string; prompt: string; criteria: string; share: boolean; returnToConversation: boolean };
+type Draft = { target: string; prompt: string; criteria: string; share: boolean; returnToConversation: boolean; sourceGroupId?: string };
 type PendingSubmission = { input: HandoffInput; source: Source; draft: Draft; conversationTitle: string };
 const blankDraft = (): Draft => ({target: '', prompt: '', criteria: '', share: false, returnToConversation: true});
 
@@ -210,7 +210,7 @@ export function HandoffPanel(props: Props) {
     const key = `${seed.sessionId}/${seed.id}`;
     if (seenSeeds.current.has(key)) return;
     seenSeeds.current.add(key); setSelection(seed.sourceTerminalId);
-    setDrafts(previous => ({...previous, [seed.sourceTerminalId]: {...(previous[seed.sourceTerminalId] ?? blankDraft()), prompt: seed.prompt.slice(0,4000), share: !!seed.excerpt}}));
+    setDrafts(previous => ({...previous, [seed.sourceTerminalId]: {...(previous[seed.sourceTerminalId] ?? blankDraft()), prompt: seed.prompt.slice(0,4000), share: !!seed.excerpt, sourceGroupId: seed.sourceGroupId}}));
     setSeedShares(previous => ({...previous, [seed.sourceTerminalId]: seed.excerpt.slice(0,8000)}));
   }, [props.opened, props.seed, props.source?.id, props.sessionId, pending]);
   const scrollTo = useCallback((element?: HTMLElement | null) => {
@@ -262,6 +262,7 @@ export function HandoffPanel(props: Props) {
   const submit = async () => {
     if (inFlight.current || !source || (!pending && (!sourceAvailable || !selectedTarget?.available)) || !draft.prompt.trim() || props.error) return;
     const input: HandoffInput = pending?.input ?? { requestId: crypto.randomUUID(), sourceTerminalId: source.id,
+      ...(draft.sourceGroupId ? { sourceGroupId: draft.sourceGroupId } : {}),
       targetLauncher: target, prompt: draft.prompt.trim(), criteria: draft.criteria.trim() || undefined,
       excerpt: draft.share && shared ? shared : undefined, returnToConversation: draft.returnToConversation };
     inFlight.current = true;
@@ -321,6 +322,7 @@ export function HandoffPanel(props: Props) {
           </select><span>独立执行</span></div>
           {selectedTarget?.reason && <span className="dt-handoff-target-note">{selectedTarget.reason}</span>}
         </label>
+        {draft.sourceGroupId && <p className="dt-handoff-footnote">来自讨论组的后续任务 · 请核对目标和共享结论，再交给 Agent。</p>}
         <label className="dt-handoff-label">任务目标<textarea aria-label="协作任务目标" rows={4} maxLength={4000} value={draft.prompt} disabled={!!pending}
           placeholder="例如：审查这次修改，找出遗漏和风险，并给出修改建议。" onChange={event => change({prompt:event.target.value})}/></label>
         <label className="dt-handoff-label">怎样算完成 <span className="dt-handoff-optional">选填</span><input aria-label="协作完成判据" maxLength={2000} value={draft.criteria} disabled={!!pending}

@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import { TerminalHandoffs, HandoffProtocol } from '../src/handoffs.mjs'
+import { NativeTerminals } from '../src/terminals.mjs'
 import { requests } from '../src/remote.mjs'
 
 const tick = () => new Promise(resolve => setImmediate(resolve))
@@ -45,6 +46,72 @@ async function completed(f, changes) {
   return settle(f, task)
 }
 async function settle(f, task) { const job = f.handoffs.states.get(f.owner).active.get(task.id); if (job) await job.done; return (await f.handoffs.list(f.owner)).tasks.find(row => row.id === task.id) }
+
+test('discussion participation cannot be accepted, reworked or returned as an execution deliverable', async () => {
+  const f = fixture()
+  const task = await f.handoffs.start(f.owner, { requestId: 'discussion', sourceTerminalId: 'source', targetLauncher: 'pi',
+    sourceGroupId: 'group', groupPurpose: 'discussion', prompt: 'Discuss only; do not execute', returnToConversation: false })
+  await tick(); f.handles[0].finish(piResult('A discussion opinion'))
+  const result = await settle(f, task), saved = f.persisted.length
+  assert.equal(result.groupPurpose, 'discussion')
+  assert.equal((await f.handoffs.accept(f.owner, { taskId: task.id, requestId: 'accept-discussion' })).rejected, true)
+  assert.equal((await f.handoffs.rework(f.owner, { taskId: task.id, requestId: 'rework-discussion', issues: 'Implement this' })).rejected, true)
+  await assert.rejects(f.handoffs.returnResult(f.owner, { taskId: task.id }), /讨论组发言/)
+  assert.equal(f.records.get(task.id).acceptance, 'pending'); assert.equal(f.records.get(task.id).delivery, 'none')
+  assert.equal(f.persisted.length, saved); assert.equal(f.handles.length, 1); assert.equal(f.deliveries.length, 0)
+  await f.handoffs.close()
+})
+
+test('group execution replays accepted identity before mutable membership gates without admitting changed or foreign requests', async () => {
+  const f = fixture()
+  let group = { id: 'group', members: [{ terminalId: 'source' }], archived: false }, reads = 0, unavailable = false
+  const facade = { handoffs: f.handoffs, current: owner => f.handoffs.terminals.current(owner), groups: { async read(owner) {
+    reads++
+    if (owner !== f.owner || unavailable) throw new Error('group unavailable')
+    return group
+  } } }
+  const input = { requestId: 'execute-group', sourceTerminalId: 'source', sourceGroupId: 'group', targetLauncher: 'pi', prompt: 'Execute the agreed conclusion' }
+  const start = (changes = {}, owner = f.owner) => NativeTerminals.prototype.handoffStart.call(facade, owner, { ...input, ...changes })
+  const original = await start(); await tick(); f.handles[0].finish(piResult('Executed conclusion'))
+  await settle(f, original)
+  assert.equal(reads, 1); assert.equal(f.records.get(original.id).groupPurpose, 'execution')
+  group = { ...group, archived: true }
+  assert.equal((await start()).id, original.id)
+  assert.equal((await start({ requestId: 'new-archived' })).rejected, true)
+  group = { ...group, archived: false, members: [{ terminalId: 'another-source' }] }
+  assert.equal((await start()).id, original.id)
+  assert.equal((await start({ requestId: 'new-removed' })).rejected, true)
+  const checked = reads
+  assert.equal((await start({ prompt: 'Different content' })).rejected, true)
+  assert.equal((await start({ sourceGroupId: 'different-group' })).rejected, true)
+  assert.equal(reads, checked)
+  unavailable = true
+  assert.equal((await start()).id, original.id)
+  assert.equal((await start({ requestId: 'new-unavailable' })).rejected, true)
+  const foreign = { id: 'foreign', session: { events: [] } }; f.agents.set(foreign.id, foreign)
+  assert.equal((await start({}, foreign)).rejected, true)
+  f.sources.delete('source')
+  assert.equal((await start()).id, original.id)
+  assert.equal(f.handles.length, 1); assert.equal(f.records.size, 1)
+  f.agents.set(f.owner.id, { ...f.owner })
+  await assert.rejects(start(), /已失效/)
+  f.agents.set(f.owner.id, f.owner)
+  await f.handoffs.close()
+})
+
+test('group execution retains its purpose through rework and supports explicit deliverable acceptance', async () => {
+  const f = fixture()
+  const original = await f.handoffs.start(f.owner, { requestId: 'execute', sourceTerminalId: 'source', targetLauncher: 'pi',
+    sourceGroupId: 'group', groupPurpose: 'execution', prompt: 'Execute the agreed conclusion', returnToConversation: false })
+  await tick(); f.handles[0].finish(piResult('Initial implementation')); await settle(f, original)
+  const child = await f.handoffs.rework(f.owner, { taskId: original.id, requestId: 'fix-execution', issues: 'Fix the missing boundary' })
+  assert.equal(child.sourceGroupId, 'group'); assert.equal(child.groupPurpose, 'execution')
+  await tick(); f.handles[1].finish(piResult('Corrected implementation')); await settle(f, child)
+  assert.equal((await f.handoffs.accept(f.owner, { taskId: child.id, requestId: 'accept-execution' })).acceptance, 'accepted')
+  assert.equal((await f.handoffs.returnResult(f.owner, { taskId: child.id })).delivery, 'queued')
+  assert.equal(f.deliveries.length, 1)
+  await f.handoffs.close()
+})
 
 test('explicit acceptance is durable and idempotent without changing execution completion or accepting future work', async () => {
   const f = fixture(), original = await completed(f)

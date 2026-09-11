@@ -14,6 +14,7 @@ export interface NativeRunMessage {
 }
 export interface NativeRunState {
   status: NativeRunStatus;
+  groupId?: string;
   messages: NativeRunMessage[];
   canStop?: boolean;
   model?: string;
@@ -85,13 +86,13 @@ export function NativeRunPanel({target, state, draft, onDraftChange, onSend, onS
   const running = state.status === 'running';
   const stopping = state.status === 'stopping';
   const excerptMatches = !sharedExcerpt || sharedExcerpt.terminalId === target?.id;
-  const canSend = Boolean(target && connected && excerptMatches && draft.trim() && !pendingSend && !busy && !action && !stopping);
+  const canSend = Boolean(target && connected && !state.groupId && excerptMatches && draft.trim() && !pendingSend && !busy && !action && !stopping);
   const retryStop = stopping && Boolean(state.error || stopUnconfirmed);
-  const showStop = running || stopping || Boolean(state.canStop);
+  const showStop = !state.groupId && (running || stopping || Boolean(state.canStop));
   const canStop = Boolean((running || retryStop || state.canStop) && (!stopping || retryStop) && connected && !busy && !action);
   const stopLabel = action === 'stop' || (stopping && !retryStop) ? '正在停止'
     : retryStop || state.status === 'failed' ? '重试停止' : running ? '停止' : '停止会话';
-  const canRetrySend = Boolean(target && pendingSend && onRetrySend && connected && !busy && !action);
+  const canRetrySend = Boolean(target && !state.groupId && pendingSend && onRetrySend && connected && !busy && !action);
   const title = target?.title || (target ? `${target.launcher}${target.number ? ` · 终端 ${String(target.number).padStart(2, '0')}` : ''}` : '选择一个终端');
   const lastMessage = state.messages[state.messages.length - 1];
 
@@ -147,7 +148,7 @@ export function NativeRunPanel({target, state, draft, onDraftChange, onSend, onS
     <style>{css}</style>
     <header className="dt-native-run-header">
       <div className="dt-native-run-brand"><span className="dt-native-run-mark" aria-hidden="true">✦</span><span>DSH AI</span>
-        <span className={`dt-native-run-status${connected ? '' : ' is-disconnected'}`} role="status"><i/>{connected ? runLabels[state.status] : '连接中断'}</span>
+        <span className={`dt-native-run-status${connected ? '' : ' is-disconnected'}`} role="status"><i/>{connected ? state.groupId ? '正在讨论组发言' : runLabels[state.status] : '连接中断'}</span>
       </div>
       <button className="dt-native-run-target" disabled={!target || !onOpenTerminal} onClick={() => { if (target) onOpenTerminal?.(target.id); }} title={target ? `打开 ${title}` : '请先选择目标终端'}>
         <AgentIcon launcher={target?.launcher || 'shell'}/><span><small>当前任务终端</small><strong>{title}</strong></span>{target && onOpenTerminal && <span className="dt-native-target-arrow" aria-hidden="true">↗</span>}
@@ -165,6 +166,7 @@ export function NativeRunPanel({target, state, draft, onDraftChange, onSend, onS
     </div>
     {unseen && <button className="dt-native-run-latest" onClick={latest}>查看最新进展 <span aria-hidden="true">↓</span></button>}
     <footer className="dt-native-run-footer">
+      {state.groupId && <p className="dt-native-run-feedback" role="status">正在参加讨论组。可先写下下一项任务，发言结束后再发送；停止请前往讨论组。</p>}
       {!connected && showRecoveryNotice && <p className="dt-native-run-feedback" role="status">连接恢复后可继续，当前记录与草稿仍保留。</p>}
       {pendingSend && !busy && <div className="dt-native-run-pending">
         <span role="status">上次发送待确认</span>

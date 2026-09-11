@@ -11,6 +11,7 @@ import { prepareShellIntegration } from './shell-integration.mjs'
 import { CommandJournal } from './command-journal.mjs'
 import { AgentReadiness, readinessSnapshot } from './agent-readiness.mjs'
 import { NativeRuns } from './terminal-runs.mjs'
+import { TerminalGroups } from './terminal-groups.mjs'
 
 const OUTPUT_BYTES = 8 * 1024 * 1024
 const READ_CHARS = 64 * 1024
@@ -70,6 +71,7 @@ export class NativeTerminals {
     this.handoffs = new TerminalHandoffs(this)
     this.agentReadiness = new AgentReadiness(this)
     this.nativeRuns = new NativeRuns(this, childRuntime)
+    this.groups = new TerminalGroups(this)
   }
 
   current(owner) {
@@ -88,14 +90,14 @@ export class NativeTerminals {
       if (eventName !== 'session/event') return
       const [session, event] = args
       if (session !== owner.session) return
-      if (this.nativeRuns.hasActive(owner) && ['permission/preset', 'approval/policy'].includes(event.type)) {
+      if ((this.nativeRuns.hasActive(owner) || this.groups.hasActive(owner)) && ['permission/preset', 'approval/policy'].includes(event.type)) {
         const previous = session.events.findLast(item => item.type === event.type)?.data
         const key = event.type === 'permission/preset' ? 'preset' : 'policy'
         if (previous?.[key] !== event.data?.[key]) throw new Error('执行会话仍在运行或保留后台资源，请先停止执行再切换权限。')
       }
       if (event.type !== 'sandbox/mode') return
       const current = this.effectiveMode(session.events) ?? this.ctx.sandboxPolicy.defaultMode
-      if (event.data.mode !== current && ([...state.entries.values()].some(entry => !entry.settled) || this.handoffs.hasActive(owner) || this.agentReadiness.hasActive(owner) || this.nativeRuns.hasActive(owner))) {
+      if (event.data.mode !== current && ([...state.entries.values()].some(entry => !entry.settled) || this.handoffs.hasActive(owner) || this.agentReadiness.hasActive(owner) || this.nativeRuns.hasActive(owner) || this.groups.hasActive(owner))) {
         throw new Error('原生终端仍在创建、运行或清理；请先关闭终端再切换 sandbox 模式')
       }
     }, { global: true }))
@@ -126,12 +128,35 @@ export class NativeTerminals {
       exitCode: entry.exitCode ?? null,
     })) : []
     const handoffs = this.handoffs.observation(owner)
-    return { status: terminals.length || handoffs.length ? 'ready' : 'empty', terminals, ...(handoffs.length ? { handoffs } : {}) }
+    const groups = this.groups.observation(owner)
+    return { status: terminals.length || handoffs.length || groups.length ? 'ready' : 'empty', terminals, ...(handoffs.length ? { handoffs } : {}), ...(groups.length ? { groups } : {}) }
   }
 
   launcherCatalog() { return Object.entries(launchers).map(([id, value]) => ({ id, label: value.label })) }
 
-  async handoffStart(owner, request, signal) { return this.handoffs.start(owner, requests.handoffStart.parse(request), signal) }
+  async groupList(owner, request, signal) { return this.groups.list(owner, requests.groupList.parse(request), signal) }
+  async groupRead(owner, request, signal) { return this.groups.read(owner, requests.groupRead.parse(request), signal) }
+  async groupCreate(owner, request, signal) { return this.groups.create(owner, requests.groupCreate.parse(request), signal) }
+  async groupUpdate(owner, request, signal) { return this.groups.update(owner, requests.groupUpdate.parse(request), signal) }
+  async groupSend(owner, request, signal) { return this.groups.send(owner, requests.groupSend.parse(request), signal) }
+  async groupStop(owner, request, signal) { return this.groups.stopGroup(owner, requests.groupStop.parse(request), signal) }
+  async groupArchive(owner, request, signal) { return this.groups.archive(owner, requests.groupArchive.parse(request), signal) }
+  async handoffStart(owner, request, signal) {
+    const input = requests.handoffStart.parse(request)
+    const submission = { ...input, ...(input.sourceGroupId ? { groupPurpose: 'execution' } : {}) }
+    if (input.sourceGroupId) {
+      const prior = await this.handoffs.replayRequest(owner, submission, signal)
+      if (prior) return prior
+      let group
+      try { group = await this.groups.read(owner, { groupId: input.sourceGroupId }, signal) }
+      catch {
+        this.current(owner); signal?.throwIfAborted()
+        return { rejected: true, message: '无法核对这个讨论组，请刷新讨论记录后重新选择来源' }
+      }
+      if (group.archived || !group.members.some(member => member.terminalId === input.sourceTerminalId)) return { rejected: true, message: '请选择这个讨论组中的来源终端' }
+    }
+    return this.handoffs.start(owner, submission, signal)
+  }
   async handoffList(owner, request, signal) { requests.handoffList.parse(request); return this.handoffs.list(owner, signal) }
   async handoffCancel(owner, request, signal) { return this.handoffs.cancel(owner, requests.handoffCancel.parse(request), signal) }
   async handoffReturn(owner, request, signal) { return this.handoffs.returnResult(owner, requests.handoffReturn.parse(request), signal) }
@@ -439,6 +464,7 @@ export class NativeTerminals {
     signal?.throwIfAborted()
     const entry = this.entry(owner, input.terminalId)
     if (!entry.settled && (!entry.lease || entry.lease !== input.lease)) throw new Error('输入控制权已失效，请重新接管')
+    await this.groups.disposeTerminal(owner, entry.id)
     const results = await Promise.allSettled([this.nativeRuns.disposeTerminal(owner, entry.id), this.settle(entry)])
     const rejected = results.find(result => result.status === 'rejected')
     if (rejected) throw rejected.reason
@@ -456,7 +482,7 @@ export class NativeTerminals {
     for (const entry of state.entries.values()) entry.controller.abort(new Error('DSH owner disposed'))
     state.disposal = (async () => {
       // Every cleanup is attempted even when another subsystem fails.
-      const outcomes = await Promise.allSettled([this.agentReadiness.disposeOwner(owner), this.handoffs.disposeOwner(owner), this.nativeRuns.disposeOwner(owner), (async () => {
+      const outcomes = await Promise.allSettled([this.groups.disposeOwner(owner), this.agentReadiness.disposeOwner(owner), this.handoffs.disposeOwner(owner), this.nativeRuns.disposeOwner(owner), (async () => {
         // Allocation promises must settle before final cleanup, including late handles.
         await Promise.allSettled([...state.opens.values()].map(item => item.result))
         const results = await Promise.allSettled([...state.entries.values()].map(entry => this.settle(entry)))
@@ -479,12 +505,12 @@ export class NativeTerminals {
   async shutdown() {
     // Stop allocations first, then drain PTYs while their DSH owners still
     // exist. Dispose only the dedicated agent handles this plugin created.
-    await Promise.all([this.independentScopes.quiesce(), this.nativeRuns.quiesce()])
+    const quiesced = await Promise.allSettled([this.groups.quiesce(), this.independentScopes.quiesce(), this.nativeRuns.quiesce()])
     const states = [...this.owners]
     const results = await Promise.allSettled(states.map(([owner, state]) => this.disposeOwner(owner, state)))
-    const independent = await Promise.allSettled([this.independentScopes.stop(), this.handoffs.close(), this.nativeRuns.close()])
+    const independent = await Promise.allSettled([this.groups.close(), this.independentScopes.stop(), this.handoffs.close(), this.nativeRuns.close()])
     const detached = await Promise.allSettled(states.flatMap(([, state]) => state.detachers.map(detach => Promise.resolve().then(() => detach?.()))))
-    const errors = [...independent, ...results, ...detached].filter(result => result.status === 'rejected').map(result => result.reason)
+    const errors = [...quiesced, ...independent, ...results, ...detached].filter(result => result.status === 'rejected').map(result => result.reason)
     if (errors.length) throw new AggregateError(errors, '原生终端停用时有资源未完成清理')
   }
 }

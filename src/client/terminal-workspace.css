@@ -9,6 +9,19 @@
 .dsh-terminal-workspace .dt-brand strong { font-size:14px; font-weight:650; letter-spacing:.2px; }
 .dsh-terminal-workspace .dt-brand-mark { color:var(--dt-accent); font:600 18px ui-monospace,monospace; }
 .dsh-terminal-workspace .dt-brand-subtitle { color:var(--dt-muted); font-size:11px; }
+.dsh-terminal-workspace .dt-group-strip { display:flex; align-items:center; gap:6px; padding:7px 14px; min-height:42px; overflow-x:auto; flex-shrink:0; border-bottom:1px solid var(--dt-border); scrollbar-width:thin; }
+.dsh-terminal-workspace .dt-group-strip-label { color:var(--dt-muted); font-size:10px; white-space:nowrap; margin-right:5px; }
+.dsh-terminal-workspace .dt-group-strip button { display:inline-flex; align-items:center; gap:7px; flex:0 0 auto; min-height:28px; border:1px solid var(--dt-border); border-radius:8px; padding:4px 10px; }
+.dsh-terminal-workspace .dt-group-strip button>span:not(.dt-group-status-dot) { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dsh-terminal-workspace .dt-group-strip button small { color:var(--dt-muted); font-size:10px; }
+.dsh-terminal-workspace .dt-group-strip .is-selected { border-color:var(--dt-accent); color:var(--dt-accent); background:#17332e; }
+.dsh-terminal-workspace .dt-group-strip .dt-group-create-drop { border-style:dashed; color:var(--dt-muted); }
+.dsh-terminal-workspace .dt-group-strip .is-drop-target { outline:2px solid var(--dt-accent); outline-offset:1px; background:#1d3c34; color:var(--dt-accent); }
+.dsh-terminal-workspace .dt-group-status-dot { width:5px; height:5px; background:var(--dt-muted); border-radius:50%; }
+.dsh-terminal-workspace .dt-group-status-dot.is-running { background:var(--dt-accent); box-shadow:0 0 0 3px #82d9c51a; }
+.dsh-terminal-workspace .dt-pane-bar[draggable="true"] { cursor:grab; }
+.dsh-terminal-workspace .dt-pane-bar[draggable="true"]:active { cursor:grabbing; }
+.dsh-terminal-workspace .dt-pane-group { color:var(--dt-accent); }
 .dsh-terminal-workspace .dt-toolbar-spacer, .dsh-terminal-workspace .dt-pane-spacer { flex:1; }
 .dsh-terminal-workspace .dt-running-count { display:flex; gap:6px; align-items:center; color:#a6b4c3; white-space:nowrap; font-size:11px; }
 .dsh-terminal-workspace .dt-running-count i { width:6px; height:6px; border-radius:50%; background:var(--dt-accent); }

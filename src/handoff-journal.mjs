@@ -6,6 +6,7 @@ const launcher = z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/)
 const time = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 export const handoffRecordSchema = z.object({
   id, requestId: id, sourceSessionId: id, sourceTerminalId: id,
+  sourceGroupId: id.optional(), groupPurpose: z.enum(['discussion', 'execution']).optional(),
   sourceLauncher: launcher, targetLauncher: launcher,
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   prompt: z.string().min(1).max(8000), excerpt: z.string().max(8000).optional(),

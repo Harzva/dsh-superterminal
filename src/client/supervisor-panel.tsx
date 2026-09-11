@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { handoffStatus } from './handoff-panel';
 import type { HandoffTask } from './types';
+import type { GroupSummary } from './group-types';
 
 type State = { suggestion?: string; suggestError?: string; suggesting?: boolean; mode?: string };
-export function SupervisorPanel({ sessionId, tasks = [], onOpenHandoffs }: { sessionId: string; tasks?: HandoffTask[]; onOpenHandoffs?(): void }) {
+export function SupervisorPanel({ sessionId, tasks = [], groups = [], onOpenGroup, onOpenHandoffs }: { sessionId: string; tasks?: HandoffTask[]; groups?: GroupSummary[]; onOpenGroup?(id: string): void; onOpenHandoffs?(): void }) {
   const [state, setState] = useState<State>({});
   const [error, setError] = useState('');
   const [round, setRound] = useState(0);
@@ -53,6 +54,12 @@ export function SupervisorPanel({ sessionId, tasks = [], onOpenHandoffs }: { ses
     <div><strong>DSH Supervisor</strong><span>当前会话 · 运行状态</span>
       <button className="dt-toolbar-button" disabled={busy} onClick={() => setRound(value => value + 1)}>{busy ? '读取中…' : '生成一次建议'}</button></div>
     <p role="status">{error || state.suggestError || state.suggestion || (busy ? '正在读取监督状态…' : '尚无建议。点击生成时会使用 DSH 已配置的模型。')}</p>
+    {groups.length > 0 && <section className="dt-supervisor-handoffs" aria-label="讨论组进展"><strong>讨论与落实</strong>
+      {groups.slice(0, 6).map(group => <button key={group.id} onClick={() => onOpenGroup?.(group.id)} disabled={!onOpenGroup}>
+        <span>{group.title} · {group.members.length} 位成员</span><span>{({idle:'尚未开始',running:'正在讨论',completed:'本轮已结束',failed:'需要处理',cancelled:'已停止',interrupted:'已中断'} as const)[group.status]}</span>
+      </button>)}
+      <small>展示讨论组的实际运行状态；会议结论仍需核对后落实。</small>
+    </section>}
     {tasks.length > 0 && <section className="dt-supervisor-handoffs" aria-label="Supervisor 协作关系"><strong>谁在帮助谁</strong>
       {[...tasks].sort((a,b) => b.createdAt-a.createdAt).slice(0,4).map(task => <button key={task.id} onClick={onOpenHandoffs}>
         <span>{task.parentTaskId ? '↳ 返工 · ' : ''}{task.sourceLauncher} → {task.targetLauncher}</span><span>{handoffStatus(task)}</span></button>)}</section>}

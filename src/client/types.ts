@@ -1,3 +1,4 @@
+import type { GroupSummary, TerminalGroup, GroupCandidate, GroupSendInput, GroupCreateInput, GroupUpdateInput } from './group-types';
 export interface ReadinessPoint { state: string; label: string; detail: string; checkedAt: number | null }
 export interface AgentHealth { installation: ReadinessPoint; authentication: ReadinessPoint; connection: ReadinessPoint; quota: ReadinessPoint; canCheckLogin: boolean }
 export interface AgentRecord { id: string; label: string; available: boolean; executable: string | null; version: string | null; configuration: string; account: string; subscription: string; readiness: string; health?: AgentHealth }
@@ -27,6 +28,8 @@ export interface HandoffTask {
   requestId: string;
   sourceSessionId: string;
   sourceTerminalId: string;
+  sourceGroupId?: string;
+  groupPurpose?: 'discussion' | 'execution';
   sourceLauncher: string;
   targetLauncher: string;
   prompt: string;
@@ -52,6 +55,7 @@ export interface HandoffTask {
 export interface HandoffInput {
   requestId: string;
   sourceTerminalId: string;
+  sourceGroupId?: string;
   targetLauncher: string;
   prompt: string;
   excerpt?: string;
@@ -70,6 +74,13 @@ export interface NativeTaskState {
 }
 export interface NativeTaskInput { terminalId: string; requestId: string; prompt: string; excerpt?: string }
 export interface TerminalBridge {
+  groupList(): Promise<{groups: GroupSummary[]; candidates: GroupCandidate[]}>;
+  groupRead(input: {groupId: string}): Promise<TerminalGroup>;
+  groupCreate(input: GroupCreateInput): Promise<TerminalGroup>;
+  groupUpdate(input: GroupUpdateInput): Promise<TerminalGroup>;
+  groupSend(input: GroupSendInput): Promise<TerminalGroup>;
+  groupStop(input: {groupId: string}): Promise<TerminalGroup>;
+  groupArchive(input: {groupId: string}): Promise<TerminalGroup>;
   runState(input: {terminalId: string}): Promise<NativeTaskState>;
   runSend(input: NativeTaskInput): Promise<NativeTaskState>;
   runStop(input: {terminalId: string}): Promise<NativeTaskState>;

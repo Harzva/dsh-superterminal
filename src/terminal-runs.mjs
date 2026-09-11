@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 
 const MARKER = 'dsh-terminal/native-run'
 const PLUGIN = 'dsh-terminal'
+const GROUP_REQUEST = /^group-[a-f0-9]{64}$/
 const MAX_HELPERS = 12, MAX_RUNNING = 2, MAX_REQUESTS = 256
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const sessionIdFor = (owner, terminalId) => `session-terminal-run-${hash([owner.id, terminalId]).slice(0, 32)}`
@@ -41,6 +42,18 @@ function identifiedInput(sessionId, requestId, prompt, excerpt) {
     content: Object.freeze([Object.freeze({ type: 'text', text: body })]) })
 }
 
+// DSH rc.2 materializes these built-in context projections as user/message
+// events during pre-step. They are context, not competing inbox requests.
+function isRuntimeContext(message) {
+  const source = message.source
+  if (source?.kind === 'skill-catalog') return source.form === 'catalog' && Array.isArray(source.entries)
+  if (source?.kind !== 'plugin' || source.plugin !== '@deepseek-ai/dsh-system-prompt') return false
+  if (source.form === 'snapshot') return Array.isArray(source.sections)
+  const blocks = message.content
+  return source.form === undefined && blocks?.length === 1 && blocks[0]?.type === 'text'
+    && blocks[0].text === 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.'
+}
+
 /** Owned DSH sessions; never inject natural-language input into an unknown TUI. */
 export class NativeRuns {
   constructor(terminals, runtime = {}) {
@@ -49,7 +62,7 @@ export class NativeRuns {
   }
 
   records() { return [...this.owners.values()].flatMap(records => [...records.values()]) }
-  hasActive(owner) { return [...(this.owners.get(owner)?.values() ?? [])].some(record => record.handle || record.creating || record.sending || record.stopping) }
+  hasActive(owner) { return [...(this.owners.get(owner)?.values() ?? [])].some(record => record.handle || record.creating || record.sending || record.stopping || record.groupLease) }
   runningCount() { return this.records().filter(record => record.creating || record.sending || record.handle?.agent.status === 'running').length }
 
   current(owner, record) {
@@ -118,7 +131,9 @@ export class NativeRuns {
         else if (!prior) record.requests.set(requestId, { fingerprint, accepted: true })
         else prior.accepted = true
         record.accepted.add(requestId)
-        put({ id: message.id, role: 'user', text: textBlocks(message.content) })
+        put({ id: message.id, role: 'user', ...(GROUP_REQUEST.test(requestId)
+          ? { title: '讨论组发言', text: '由终端讨论组发起。目标、参会成员和共享材料可在讨论组查看。' }
+          : { text: textBlocks(message.content) }) })
       }
       const assistantId = `assistant-${data.turn}-${data.step}`
       if (event.type === 'assistant/chunk' && data.chunk?.type === 'text-delta') {
@@ -154,6 +169,7 @@ export class NativeRuns {
     else if (record.handle && !record.error) status = record.lastOutcome === 'completed' ? 'completed' : record.lastOutcome && record.lastOutcome !== 'aborted' ? 'failed' : 'idle'
     const outcomeError = status === 'failed' && !record.error ? '这次执行未正常完成，请查看步骤后继续。' : undefined
     return { terminalId: record.terminalId, ...(record.route ? { sessionId: record.sessionId, model: record.route.model, route: { ...record.route } } : {}),
+      ...(record.groupLease ? { groupId: record.groupLease.groupId } : {}),
       status, canStop: Boolean(record.handle || record.creating || record.sending || record.stopping), messages: [...record.messages.values()].map(message => ({ ...message })), acceptedRequestIds: [...record.accepted].slice(-128),
       ...(record.sourcePolicy ? { permission: permissionName(record.sourcePolicy.mode), policy: { mode: record.sourcePolicy.mode, approval: 'never' } } : {}),
       ...(record.error || outcomeError ? { error: record.error || outcomeError } : {}) }
@@ -276,11 +292,12 @@ export class NativeRuns {
     try { return await operation } finally { record.creating = null }
   }
 
-  async send(owner, { terminalId, requestId, prompt, excerpt }, signal) {
+  async send(owner, { terminalId, requestId, prompt, excerpt }, signal, groupLease) {
     signal?.throwIfAborted()
     let record
     try { record = this.record(owner, terminalId, true); this.current(owner, record) }
     catch { throw rejected('当前终端已关闭或不属于这个会话。') }
+    if (record.groupLease && record.groupLease !== groupLease) throw rejected('这个终端正在参加讨论组，请等待发言结束或在讨论组中停止。')
     const message = identifiedInput(record.sessionId, requestId, prompt, excerpt)
     const fingerprint = hash(message.content), previous = record.requests.get(requestId)
     if (previous) {
@@ -312,6 +329,7 @@ export class NativeRuns {
         if (record.conflicts.has(requestId) || historical?.fingerprint !== fingerprint) throw failure('这个请求标识已用于不同内容，请勿重复提交。')
         if (!record.accepted.has(requestId) && record.requests.size > MAX_REQUESTS) throw failure('这个执行会话已达到消息上限，请新建终端。')
         if (!record.accepted.has(requestId)) {
+          if (groupLease && (record.groupLease !== groupLease || handle.agent.status === 'running')) throw failure('这个终端已开始其他任务，本次未加入发言。')
           // Reserve before delivery. A throw after insertion never permits a second send.
           request.attempted = true
           if (handle.agent.status === 'running') handle.agent.steer(message)
@@ -368,9 +386,89 @@ export class NativeRuns {
     signal?.throwIfAborted()
     const record = this.record(owner, terminalId)
     if (!record) return this.state(owner, { terminalId }, signal)
+    if (record.groupLease) throw rejected('这个终端正在参加讨论组，请在讨论组中停止。')
     this.terminals.current(owner)
     await this.stopRecord(record)
     return this.view(record)
+  }
+
+  /** Exclusive existing-session turn. Returns only the reply correlated to this input. */
+  async groupTurn(owner, { terminalId, requestId, prompt, groupId }, signal, { timeoutMs = 10 * 60 * 1000 } = {}) {
+    signal?.throwIfAborted()
+    const record = this.record(owner, terminalId, true)
+    this.current(owner, record)
+    if (record.groupLease || record.creating || record.sending || record.stopping || record.handle?.agent.status === 'running') {
+      throw failure('这个终端正在处理其他任务，本次未加入发言；请等待完成后重试。')
+    }
+    const lease = { groupId, requestId }, controller = new AbortController()
+    record.groupLease = lease
+    const abort = () => controller.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    const timer = setTimeout(abort, timeoutMs)
+    let cleanup
+    const cancel = () => {
+      if (record.groupLease === lease && (record.requests.get(requestId)?.attempted || record.accepted.has(requestId) || record.creating)) cleanup ??= this.stopRecord(record)
+      void cleanup?.catch(() => {})
+    }
+    controller.signal.addEventListener('abort', cancel, { once: true })
+    try {
+      await this.send(owner, { terminalId, requestId, prompt }, controller.signal, lease)
+      controller.signal.throwIfAborted()
+      const handle = record.handle
+      if (!handle) throw failure('讨论发言未能连接执行会话。')
+      const cancelled = new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(failure('本次讨论发言已停止或超时。')), { once: true }))
+      await Promise.race([handle.agent.whenIdle(), cancelled])
+      controller.signal.throwIfAborted()
+      this.checkPolicy(owner, record)
+      const events = handle.agent.session.events
+      const messageId = messageIdFor(record.sessionId, requestId)
+      const inboxInputs = new Set()
+      let turn, targetTurn, reply, ended, contaminated = false, turnInputs = []
+      for (const event of events) {
+        const data = event.data ?? {}
+        if (event.type === 'agent/inbox/spliced') for (const message of data.inserted ?? []) inboxInputs.add(message.id)
+        if (event.type === 'turn/start') { turn = data.turn; turnInputs = [] }
+        if (event.type === 'user/message' && (inboxInputs.has(data.id) || !isRuntimeContext(data))) {
+          turnInputs.push(data.id)
+          if (data.id === messageId && ownRequest(record.sessionId, data) === requestId) { targetTurn = turn; reply = undefined; ended = undefined; contaminated = turnInputs.some(id => id !== messageId) }
+          else if (targetTurn !== undefined && turn === targetTurn && !ended) contaminated = true
+        }
+        if (targetTurn === undefined || data.turn !== targetTurn) continue
+        if (event.type === 'assistant/message' && !data.interrupted) {
+          const value = textBlocks(data.message?.content)
+          reply = value.trim() ? value : undefined
+        }
+        if (event.type === 'turn/end') ended = data.reason?.kind
+      }
+      if (targetTurn === undefined || ended !== 'completed' || contaminated || !reply?.trim() || handle.agent.status === 'running') {
+        throw failure('未收到与本次发言对应的完整结果；未将其他任务或历史消息算作回复。')
+      }
+      await this.checkpoint(record, handle.agent.session, 'group-result-checkpoint', '讨论回复已生成，但执行记录保存尚未确认。')
+      controller.signal.throwIfAborted(); this.checkPolicy(owner, record)
+      if (record.groupLease !== lease) throw failure('本次讨论的执行权限已释放，未回传过期回复。')
+      return { text: reply.trim(), model: record.route?.model, sessionId: record.sessionId }
+    } catch (error) {
+      // A delivered but uncertain turn is cancelled before another task may use
+      // this session. A cleanup failure deliberately retains the ownership fence.
+      if (record.groupLease === lease && (record.requests.get(requestId)?.attempted || record.accepted.has(requestId) || record.creating)) { cleanup ??= this.stopRecord(record); await cleanup }
+      throw safeError(error)
+    } finally {
+      clearTimeout(timer); signal?.removeEventListener('abort', abort)
+      controller.signal.removeEventListener('abort', cancel)
+      if (cleanup) { try { await cleanup; if (record.groupLease === lease) record.groupLease = null } catch {} }
+      else if (record.groupLease === lease) record.groupLease = null
+    }
+  }
+
+  hasGroupLease(owner, groupId) { return [...(this.owners.get(owner)?.values() ?? [])].some(record => record.groupLease?.groupId === groupId) }
+  async stopGroupTurn(owner, groupId) {
+    const records = [...(this.owners.get(owner)?.values() ?? [])].filter(record => record.groupLease?.groupId === groupId)
+    const results = await Promise.allSettled(records.map(async record => {
+      const lease = record.groupLease
+      await this.stopRecord(record)
+      if (record.groupLease === lease) record.groupLease = null
+    }))
+    if (results.some(result => result.status === 'rejected')) throw failure('讨论发言的执行资源尚未完成清理，请再次停止。')
   }
 
   async disposeTerminal(owner, terminalId) {

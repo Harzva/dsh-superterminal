@@ -8,12 +8,15 @@ import { TerminalPane } from './terminal-pane';
 import { NativeTerminalTask } from './native-terminal-task';
 import { SupervisorPanel } from './supervisor-panel';
 import { HandoffPanel, HandoffSummary, useHandoffs } from './handoff-panel';
+import type { HandoffSeed } from './handoff-panel';
+import { TerminalGroupPanel, useTerminalGroups } from './terminal-group-panel';
 import { layoutGeometry, leafSlots, neighborSlot, pointerRatio, presetLayout, removeSlot, resizeSplit, splitSlot } from './layout.mjs';
 import type { LayoutPreset, LayoutTree, Rect, Separator } from './layout.mjs';
 import type { TerminalBridge, TerminalLauncher, TerminalSummary } from './types';
 import workspaceCss from './terminal-workspace.css';
 import handoffCss from './handoff.css';
 import runCss from './terminal-run-panel.css';
+import groupCss from './terminal-group-panel.css';
 import xtermCss from '@xterm/xterm/css/xterm.css';
 
 export type TerminalWorkspaceProps = { bridge: TerminalBridge; sessionId: string; active?: boolean; compact?: boolean; contextLabel?: string; conversationTitle?: string; onShowConversation?(): void };
@@ -59,10 +62,14 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const [autoClaimIds, setAutoClaimIds] = useState<Set<string>>(() => new Set());
   const [opening, setOpening] = useState<Record<number, 'pending' | 'uncertain'>>({});
   const [cwd, setCwd] = useState('');
-  const [auxiliary, setAuxiliary] = useState<'agents' | 'assistant' | 'supervisor' | 'handoff' | null>(null);
+  const [auxiliary, setAuxiliary] = useState<'agents' | 'assistant' | 'supervisor' | 'handoff' | 'groups' | null>(null);
   const showManager = auxiliary === 'agents', showSmart = auxiliary === 'assistant', showSupervisor = auxiliary === 'supervisor', showHandoff = auxiliary === 'handoff';
   const [assistantSeed, setAssistantSeed] = useState<AssistantSeed>();
-  const [handoffSeed, setHandoffSeed] = useState<{id: string; sessionId: string; sourceTerminalId: string; prompt: string; excerpt: string}>();
+  const [handoffSeed, setHandoffSeed] = useState<HandoffSeed>();
+  const groups = useTerminalGroups(bridge, active);
+  const [groupSeed, setGroupSeed] = useState<{request: number; terminalId: string; groupId?: string}>();
+  const [groupDropTarget, setGroupDropTarget] = useState<string | null>(null);
+  const showGroups = auxiliary === 'groups';
   const [readIssues, setReadIssues] = useState<Record<string, boolean>>({});
   const headingRef = useRef<HTMLDivElement>(null);
   const [helperTop, setHelperTop] = useState(112);
@@ -230,6 +237,30 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     setHandoffOpenAt(previous => ({section, request: previous.request + 1}));
     setAuxiliary('handoff');
   };
+  const addToGroup = (terminalId: string, groupId?: string) => {
+    if (!slots.some(terminal => terminal?.id === terminalId)) return;
+    if (groupId) groups.select(groupId);
+    setGroupSeed(previous => ({request: (previous?.request ?? 0) + 1, terminalId, groupId}));
+    setAuxiliary('groups');
+  };
+  const dropTerminal = (event: React.DragEvent, groupId?: string) => {
+    event.preventDefault(); setGroupDropTarget(null);
+    try {
+      const payload = JSON.parse(event.dataTransfer.getData('application/x-dsh-terminal'));
+      if (payload.sessionId !== sessionId || typeof payload.terminalId !== 'string') return;
+      addToGroup(payload.terminalId, groupId);
+    } catch { /* An unrelated drop is not a terminal invitation. */ }
+  };
+  const groupHandoff = (input: {groupId: string; sourceTerminalId: string; prompt: string; excerpt: string}) => {
+    const index = slots.findIndex(terminal => terminal?.id === input.sourceTerminalId);
+    const source = slots[index];
+    if (!source) { setActionError('来源终端已关闭，请先选择组内可用的终端。'); return; }
+    setHandoffSource({id: source.id, launcher: source.launcher, title: records[index]?.title});
+    setExcerpt({terminalId: source.id, text: input.excerpt});
+    setHandoffSeed({id: crypto.randomUUID(), sessionId, sourceTerminalId: source.id, sourceGroupId: input.groupId, prompt: input.prompt, excerpt: input.excerpt});
+    setHandoffOpenAt(previous => ({section: 'form', request: previous.request + 1}));
+    setAuxiliary('handoff');
+  };
   const openSelectionAction = (index: number, action: 'explain' | 'fix' | 'handoff' | 'execute', text: string) => {
     const terminal = slots[index];
     if (!terminal || !text.trim()) return;
@@ -393,6 +424,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       <style>{workspaceCss}</style>
       <style>{handoffCss}</style>
       <style>{runCss}</style>
+      <style>{groupCss}</style>
       <style>{xtermCss}</style>
       <div className="dt-workspace-heading" ref={headingRef}><header className="dt-workspace-bar">
         <div className="dt-brand"><span className="dt-brand-mark">&gt;_</span><strong>DSH SuperTerminal</strong><span className="dt-brand-subtitle">WORKSPACE</span></div>
@@ -401,6 +433,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         <button className="dt-toolbar-button" aria-pressed={showManager} onClick={() => setAuxiliary(value => value === 'agents' ? null : 'agents')}>{compact ? 'Agents' : '智能体管理'}</button>
         <button className="dt-toolbar-button" aria-pressed={showSmart} onClick={() => setAuxiliary(value => value === 'assistant' ? null : 'assistant')}>{compact ? '解释' : '解释与建议'}</button>
         <button className="dt-toolbar-button dt-handoff-entry" aria-expanded={showHandoff} onClick={() => openHandoff()}>{compact ? '↗ 协作' : '↗ 交给 Agent'}</button>
+        <button className="dt-toolbar-button dt-groups-entry" aria-expanded={showGroups} onClick={() => setAuxiliary(value => value === 'groups' ? null : 'groups')}>{compact ? '讨论组' : '◎ 终端讨论组'}</button>
         <button className="dt-toolbar-button" aria-expanded={showSupervisor} onClick={() => setAuxiliary(value => value === 'supervisor' ? null : 'supervisor')}>{compact ? '监督' : 'Supervisor'}</button>
         <span className="dt-running-count"><i />{running} 运行 · {terminals.length} 终端</span>
         <label className="dt-layout-select">布局 <select aria-label="布局预设" value={preset}
@@ -423,11 +456,31 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       {terminalNavigation.length > 0 && <div className="dt-hidden-panes" aria-label="切换终端"><span>{compact ? '切换终端' : '已收起 · 进程保留'}</span>{terminalNavigation.map(({terminal, index}) =>
         <button key={terminal.id} onClick={() => showSlot(index)} title={`切换到终端 ${index + 1}`}>
           {String(index + 1).padStart(2, '0')} {records[index]?.title || terminal.launcher}</button>)}
-        {!compact && <button onClick={() => selectPreset('twelve')}>显示全部</button>}
+        {!compact && <button onClick={() => selectPreset(slots.filter(Boolean).length <= 2 ? 'horizontal' : slots.filter(Boolean).length <= 3 ? 'main' : slots.filter(Boolean).length <= 6 ? 'six' : 'twelve')}>显示全部</button>}
       </div>}
+      <div className="dt-group-strip" aria-label="终端讨论组">
+        <span className="dt-group-strip-label">讨论组</span>
+        {groups.groups.map(group => <button type="button" key={group.id}
+          className={`${showGroups && groups.selectedId === group.id ? 'is-selected' : ''}${groupDropTarget === group.id ? ' is-drop-target' : ''}`}
+          onClick={() => {groups.select(group.id);setAuxiliary('groups');}}
+          onDragOver={event => {if (event.dataTransfer.types.includes('application/x-dsh-terminal')) {event.preventDefault();event.dataTransfer.dropEffect = 'copy';setGroupDropTarget(group.id);}}}
+          onDragLeave={() => setGroupDropTarget(null)} onDrop={event => dropTerminal(event, group.id)}
+          title={`打开 ${group.title}，${group.members.length} 个参会终端`}>
+          <span className={`dt-group-status-dot${group.status === 'running' ? ' is-running' : ''}`}/><span>{group.title}</span><small>{group.members.length}</small>
+        </button>)}
+        <button type="button" className={`dt-group-create-drop${groupDropTarget === 'new' ? ' is-drop-target' : ''}`}
+          onClick={() => {groups.select(undefined);setAuxiliary('groups');}}
+          onDragOver={event => {if (event.dataTransfer.types.includes('application/x-dsh-terminal')) {event.preventDefault();event.dataTransfer.dropEffect='copy';setGroupDropTarget('new');}}}
+          onDragLeave={() => setGroupDropTarget(null)} onDrop={event => dropTerminal(event)}>
+          ＋ {groups.groups.length ? '新建讨论组' : '组建讨论组 · 可拖入终端'}</button>
+      </div>
       </div>
       <div className="dt-workspace-context"><span className="dt-context-label">工作目录</span><span className="dt-cwd" title={cwd}>{cwd || (loading ? '读取中…' : '暂不可用')}</span><span className="dt-context-hint">{contextLabel}</span></div>
       <HandoffSummary tasks={handoffs.tasks} onOpen={() => openHandoff('records')}/>
+      <TerminalGroupPanel bridge={bridge} state={groups} opened={showGroups} seed={groupSeed} excerpt={excerpt}
+        terminals={terminals.map(terminal => {const index = slots.findIndex(item => item?.id === terminal.id); return {...terminal, title: records[index]?.title, number: index + 1};})}
+        onClose={() => setAuxiliary(null)} onHandoff={groupHandoff}
+        onShowTerminal={id => {const index = slots.findIndex(item => item?.id === id); if(index < 0) return false; showSlot(index); return true;}}/>
       <HandoffPanel bridge={bridge} sessionId={sessionId} conversationTitle={conversationTitle}
         source={handoffSource} availableTerminalIds={terminals.map(item => item.id)}
         excerpt={excerpt} tasks={handoffs.tasks} targets={handoffs.targets} error={handoffs.error} loaded={handoffs.loaded}
@@ -447,7 +500,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           const draft = {id:crypto.randomUUID(),text}; assistantMemory(sessionId, targetId).update({terminalDraft:draft});
           setDrafts(previous=>({...previous,[targetId]:draft}));showSlot(index);
         }} />}
-      {showSupervisor && <SupervisorPanel sessionId={sessionId} tasks={handoffs.tasks} onOpenHandoffs={() => openHandoff('records')} />}
+      {showSupervisor && <SupervisorPanel sessionId={sessionId} tasks={handoffs.tasks} groups={groups.groups}
+        onOpenGroup={id => {groups.select(id);setAuxiliary('groups');}} onOpenHandoffs={() => openHandoff('records')} />}
       {(listError || terminals.some(item => readIssues[item.id]) || actionError) && <div className="dt-workspace-notice dt-connection-status" role="status"><span>{listError || (terminals.some(item => readIssues[item.id]) ? `终端 ${slots.flatMap((item,index) => item && readIssues[item.id] ? [String(index+1).padStart(2,'0')] : []).join('、')} 正在恢复连接，画面与草稿已保留，相关终端暂停输入。` : actionError)}</span><button disabled={loading} onClick={() => { void refresh(true); }}>重新检查</button></div>}
       {visibleSlots.length===0 && <div className="dt-all-hidden"><span>终端已收起，任务继续运行。</span><button onClick={newTerminal}>新建终端</button></div>}
       <div className={`dt-layout-viewport${dragging ? ' is-resizing' : ''}`} ref={viewportRef}>
@@ -463,6 +517,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           return <div className="dt-cell" key={terminal?.id ?? `empty-${index}`} style={style} aria-hidden={!visible}>
             {terminal ? <PaneBoundary><TerminalPane
               terminal={terminal} bridge={bridge} viewerId={viewerId} number={index + 1} connected={!listError}
+              onAddToGroup={() => addToGroup(terminal.id, groups.selectedId)}
+              onGroupDragStart={event => {event.dataTransfer.effectAllowed = 'copy';event.dataTransfer.setData('application/x-dsh-terminal', JSON.stringify({sessionId,terminalId:terminal.id}));}}
               naturalOpen={naturalOpen} onNaturalToggle={value => {setNaturalViews(previous => ({...previous, [terminal.id]: value})); if (value) setAuxiliary(null);}}
               naturalContent={<NativeTerminalTask bridge={bridge} sessionId={sessionId}
                 target={{id: terminal.id, launcher: terminal.launcher, title: records[index]?.title, number: index + 1}}

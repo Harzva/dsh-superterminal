@@ -18,6 +18,8 @@ const safe = text => {
   return value.length <= MAX_RESULT_CHARS ? value : value.slice(0, MAX_RESULT_CHARS - 40) + '\n\n（结果较长，以上仅保留前半部分。）'
 }
 const SAVE_WARNING = '这条记录暂未保存，正在重试；请保持当前对话打开，不会自动重跑任务。'
+const requestFingerprint = (input, relation) => createHash('sha256').update(JSON.stringify({ ...input, returnToConversation: input.returnToConversation === true,
+  ...(relation ? { kind: 'rework', parentTaskId: relation.parent.id, issues: relation.issues } : {}) })).digest('hex')
 const view = (task, dirty, reviews) => ({ ...Object.fromEntries(Object.entries(task).filter(([key]) => key !== 'fingerprint')),
   acceptance: task.acceptance ?? 'pending', ...(dirty?.has(task.id) || reviews?.has(task.id) ? { savePending: true } : {}),
   ...(dirty?.has(task.id) || reviews?.has(task.id) ? { error: [task.error?.slice(0, 800), reviews?.has(task.id)
@@ -123,10 +125,12 @@ export class TerminalHandoffs {
     return [...(this.states.get(owner)?.records.values() ?? [])].sort((a, b) => b.createdAt - a.createdAt).slice(0, 12).map(task => ({
       id: task.id, sourceTerminalId: task.sourceTerminalId, sourceLauncher: task.sourceLauncher,
       targetLauncher: task.targetLauncher, status: task.status, delivery: task.delivery,
-      goal: task.prompt.slice(0, 600), criteria: (task.criteria ?? '').slice(0, 600),
+      goal: task.sourceGroupId ? (task.groupPurpose === 'discussion' ? '讨论组参会任务' : '讨论组后续执行') : task.prompt.slice(0, 600),
+      criteria: task.sourceGroupId ? '' : (task.criteria ?? '').slice(0, 600),
+      ...(task.sourceGroupId ? { sourceGroupId: task.sourceGroupId, groupPurpose: task.groupPurpose ?? 'execution' } : {}),
       acceptance: this.states.get(owner)?.dirty.has(task.id) ? 'pending' : task.acceptance ?? 'pending',
       ...(task.reviewedAt ? { reviewedAt: task.reviewedAt } : {}),
-      ...(task.reviewNotes ? { reviewNotes: task.reviewNotes.slice(0, 600) } : {}),
+      ...(task.reviewNotes && !task.sourceGroupId ? { reviewNotes: task.reviewNotes.slice(0, 600) } : {}),
       ...(task.parentTaskId ? { parentTaskId: task.parentTaskId } : {}),
       ...(task.reworkTaskId ? { reworkTaskId: task.reworkTaskId } : {}),
     }))
@@ -189,14 +193,26 @@ export class TerminalHandoffs {
     return this.create(owner, input, signal)
   }
 
+  // Reconcile accepted identity before a caller checks mutable admission gates.
+  // This only reads this exact owner's records and never allocates work.
+  async replayRequest(owner, input, signal) {
+    const state = await this.state(owner, signal)
+    const prior = [...state.records.values()].find(task => task.requestId === input.requestId)
+    if (!prior) return null
+    if (prior.fingerprint !== requestFingerprint(input)) return { rejected: true, message: '这个请求标识已用于另一项交接，请重新创建任务' }
+    const pending = state.submissions.get(prior.id)
+    if (pending) await pending
+    this.terminals.current(owner); signal?.throwIfAborted()
+    return view(prior, state.dirty)
+  }
+
   async create(owner, input, signal, relation) {
     const state = await this.state(owner, signal)
     // Only pre-allocation decisions are definitive rejections. Persistence,
     // transport, and later lifecycle failures retain the same request identity.
     const reject = message => ({ rejected: true, message })
     if (!SUPPORTED.has(input.targetLauncher)) return reject('这个智能体暂不支持后台交接')
-    const fingerprint = createHash('sha256').update(JSON.stringify({ ...input, returnToConversation: input.returnToConversation === true,
-      ...(relation ? { kind: 'rework', parentTaskId: relation.parent.id, issues: relation.issues } : {}) })).digest('hex')
+    const fingerprint = requestFingerprint(input, relation)
     const prior = [...state.records.values()].find(task => task.requestId === input.requestId)
     if (prior) {
       if (prior.fingerprint !== fingerprint) return reject('这个请求标识已用于另一项交接，请重新创建任务')
@@ -225,6 +241,8 @@ export class TerminalHandoffs {
     if (!['read-only', 'workspace-write', 'danger-full-access'].includes(policy.mode) || !policy.workspaceRoot) return reject('无法确认当前工作区权限')
     const task = { id: randomUUID(), requestId: input.requestId, fingerprint, sourceSessionId: owner.id,
       sourceTerminalId: source.id, sourceLauncher: source.launcher, targetLauncher: input.targetLauncher,
+      ...((input.sourceGroupId ?? relation?.parent.sourceGroupId) ? { sourceGroupId: input.sourceGroupId ?? relation.parent.sourceGroupId,
+        groupPurpose: input.groupPurpose ?? relation?.parent.groupPurpose ?? 'execution' } : {}),
       prompt: input.prompt, ...(input.excerpt ? { excerpt: input.excerpt } : {}), ...(input.criteria ? { criteria: input.criteria } : {}),
       returnToConversation: input.returnToConversation === true, status: 'queued', delivery: 'none', exitCode: null,
       acceptance: 'pending', ...(relation ? { parentTaskId: relation.parent.id, reworkIssues: relation.issues,
@@ -276,6 +294,7 @@ export class TerminalHandoffs {
   async accept(owner, input, signal) {
     return this.reviewOperation(owner, input.taskId, signal, async (state, task) => {
       const reject = message => ({ rejected: true, message })
+      if (task.groupPurpose === 'discussion') return reject('讨论组发言不是执行成果；请从讨论组结论建立后续执行任务后再验收')
       if (state.returning.has(task.id)) return reject('结果正在回传，请稍后再验收')
       const notes = (input.notes ?? '').trim()
       if (!input.requestId || typeof input.requestId !== 'string' || input.requestId.length > 128 || notes.length > 2000) return reject('请检查验收记录后重试')
@@ -317,6 +336,7 @@ export class TerminalHandoffs {
 
   async rework(owner, input, signal) {
     return this.reviewOperation(owner, input.taskId, signal, async (state, parent) => {
+      if (parent.groupPurpose === 'discussion') return { rejected: true, message: '讨论组发言不能安排成果返工；请在讨论组继续讨论，或从结论建立后续执行任务' }
       if (state.reviewCandidates.has(parent.id)) return { rejected: true, message: '验收记录尚待确认，请先核对验收状态' }
       if (state.returning.has(parent.id)) return { rejected: true, message: '结果正在回传，请稍后再安排返工' }
       if (typeof input.issues !== 'string' || !input.issues.trim() || input.issues.trim().length > 4000 ||
@@ -446,7 +466,17 @@ export class TerminalHandoffs {
   }
 
   async cancel(owner, { taskId }, signal) {
-    const state = await this.state(owner, signal), task = state.records.get(taskId)
+    await this.state(owner, signal)
+    this.terminals.current(owner); signal?.throwIfAborted()
+    const result = await this.cancelOwned(owner, { taskId }, { requireSave: true })
+    this.terminals.current(owner)
+    return result
+  }
+
+  // Internal lifecycle cleanup must still drain a recorded job after its
+  // public owner has begun disposal. This is not a remotely callable method.
+  async cancelOwned(owner, { taskId }, { requireSave = false } = {}) {
+    const state = this.states.get(owner), task = state?.records.get(taskId)
     if (!task || task.sourceSessionId !== owner.id) throw new Error('当前会话没有这项交接')
     const job = state.active.get(taskId)
     if (job) {
@@ -457,10 +487,9 @@ export class TerminalHandoffs {
         task.status = 'cancelled'; task.error = [...new Set([job.settledError?.slice(0, 800), '交接已停止'].filter(Boolean))].join('\n'); task.updatedAt = Date.now()
         task.executionFinishedAt = Date.now()
         this.release(state, job)
-        await this.persist(owner, state, task)
+        try { await this.persist(owner, state, task) } catch (error) { if (requireSave) throw error }
       }
     }
-    this.terminals.current(owner)
     return view(task, state.dirty)
   }
 
@@ -468,6 +497,7 @@ export class TerminalHandoffs {
     const state = await this.state(owner, requestSignal), task = state.records.get(taskId)
     const signal = requestSignal ? AbortSignal.any([requestSignal, state.controller.signal]) : state.controller.signal
     if (!task || task.sourceSessionId !== owner.id) throw new Error('当前会话没有这项交接')
+    if (task.groupPurpose === 'discussion') throw new Error('讨论组发言只返回讨论组，不能作为执行成果回传对话')
     if (state.reviewing.has(taskId) || state.reviewCandidates.has(taskId)) throw new Error('验收记录正在确认，请稍后再回传结果')
     if (!['succeeded', 'failed'].includes(task.status)) throw new Error('请等待交接结果返回后再送回对话')
     if (task.delivery === 'queued') return view(task, state.dirty)
