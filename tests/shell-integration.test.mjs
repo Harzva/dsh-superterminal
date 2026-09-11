@@ -58,6 +58,11 @@ for (const shell of ['zsh', 'bash']) test(`real ${shell} PTY records success/fai
   const home = await mkdtemp(join(tmpdir(), 'dsh-shell-pty-'))
   const original = "PS1='USER_PROMPT> '\nprintf 'USER_RC_LOADED\\n'\n"
   await writeFile(join(home, shell === 'zsh' ? '.zshrc' : '.bashrc'), original)
+  // Ubuntu starts compinit from its global zshrc before our user rc wrapper.
+  // The runner's completion directories can require an interactive audit;
+  // this fixture tests command hooks, so keep that unrelated setup out of it.
+  // Only the throwaway test home changes; real user startup files are preserved.
+  if (shell === 'zsh') await writeFile(join(home, '.zshenv'), 'skip_global_compinit=1\n')
   const integration = await prepareShellIntegration(`/bin/${shell}`, [], { environment: {} })
   const pty = nodePty.spawn(integration.argv[0], integration.argv.slice(1), { name: 'xterm-256color', cols: 80, rows: 24, cwd: home,
     env: { HOME: home, PATH: process.env.PATH, TERM: 'xterm-256color', ...integration.env } })
