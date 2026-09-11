@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f5f3ec">
   <title>DSH SuperTerminal — 说出目标，让终端去完成。</title>
-  <meta name="description" content="DSH SuperTerminal：在对话旁用自然语言执行任务，查看真实步骤与结果。自由分屏、原生智能体 CLI、按终端隔离的上下文。">
+  <meta name="description" content="DSH SuperTerminal：在对话旁用自然语言执行任务，邀请不同终端一起讨论，把结论交给 Agent 执行。自由分屏、原生智能体 CLI、清楚的上下文归属。">
   <meta property="og:title" content="DSH SuperTerminal">
   <meta property="og:description" content="说出目标，让终端去完成。Natural-language tasks, native terminals, right beside your conversation.">
   <meta property="og:type" content="website">
@@ -15,8 +15,8 @@
   <link rel="canonical" href="https://harzva.github.io/dsh-superterminal/">
   <link rel="icon" type="image/svg+xml" href="./assets/logo.svg">
   <link rel="stylesheet" href="./style.css">
-  <link rel="stylesheet" href="./showcase.css?v=showcase-3">
-  <script defer src="./app.js?v=showcase-3"></script>
+  <link rel="stylesheet" href="./showcase.css?v=showcase-4">
+  <script defer src="./app.js?v=showcase-4"></script>
 </head>
 <body>
   <a class="skip-link" href="#main" data-en="Skip to content">跳到正文</a>
@@ -27,7 +27,7 @@
     </a>
     <nav aria-label="主导航" data-aria-en="Main navigation">
       <a class="nav-detail" href="#features" data-en="Why SuperTerminal">产品能力</a>
-      <a class="nav-detail" href="#workspace" data-en="Your workspace">工作区</a>
+      <a class="nav-detail" href="#terminal-group" data-en="Terminal Group">终端讨论组</a>
       <button class="language-button" id="language" type="button" aria-label="Switch to English">EN</button>
       <a class="nav-install" href="#install"><span data-en="Get started">开始使用</span><span aria-hidden="true">↗</span></a>
     </nav>
@@ -36,12 +36,12 @@
   <main id="main">
     <section class="hero section-shell" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <a class="release-pill" href="https://github.com/Harzva/dsh-superterminal/releases/tag/v0.1.0-alpha.8"><span class="release-dot" aria-hidden="true"></span><span>alpha.8</span><span class="pill-divider"></span><span data-en="Open source · Made for DSH">开源 · 为 DSH 而生</span><span aria-hidden="true">↗</span></a>
+        <a class="release-pill" href="https://github.com/Harzva/dsh-superterminal/releases/tag/v0.1.0-alpha.9"><span class="release-dot" aria-hidden="true"></span><span>alpha.9</span><span class="pill-divider"></span><span data-en="New: Terminal Group">新增终端讨论组</span><span aria-hidden="true">↗</span></a>
         <h1 id="hero-title"><span data-en="Say it.">说出目标。</span><br><span class="hero-highlight" data-en="Get it done.">让终端去完成。</span></h1>
         <p class="hero-description" data-en="Your conversation on one side. Real work on the other. Ask DSH to read files, edit code, and run commands—right in your terminal.">一边对话，一边把事情做完。用自然语言，让 DSH 读取文件、修改代码、执行命令。</p>
         <div class="hero-actions"><a class="button button-dark" href="#install"><span data-en="Get SuperTerminal">开始使用</span><span aria-hidden="true">↗</span></a><a class="button button-plain" href="https://github.com/Harzva/dsh-superterminal">GitHub <span aria-hidden="true">↗</span></a></div>
         <div class="compatibility"><span>macOS</span><span>Node.js 24+</span><span>DSH 0.1.1-rc.2</span></div>
-        <div class="hero-signature"><img src="./assets/logo.svg" width="40" height="40" alt=""><p><strong data-en="A little terminal. Real work.">小小终端，认真干活。</strong><span data-en="AI tasks. Native CLIs. Your workspace.">AI 任务、原生 CLI、你的工作区。</span></p></div>
+        <div class="hero-signature"><img src="./assets/logo.svg" width="40" height="40" alt=""><p><strong data-en="A little terminal. Real work.">小小终端，认真干活。</strong><span data-en="AI tasks. Terminal groups. Native CLIs.">AI 任务、终端讨论组、原生 CLI。</span></p></div>
       </div>
       <div class="product-tour" id="product-tour">
         <div class="tour-heading"><span data-en="TAKE A LOOK INSIDE">看看它如何工作</span><span class="tour-live-note" data-en="Actual product screenshots">真实产品截图</span></div>
@@ -81,6 +81,24 @@
       </div>
     </section>
 
+    <section class="terminal-group-section section-shell" id="terminal-group" aria-labelledby="group-title">
+      <div class="side-grid group-grid">
+        <div class="feature-copy">
+          <p class="eyebrow group-eyebrow"><span>TERMINAL GROUP</span><span class="group-release">alpha.9</span></p>
+          <h2 id="group-title"><span data-en="Different terminals.">不同终端。</span><br><span data-en="One conversation.">一起把问题聊透。</span></h2>
+          <p data-en="Bring terminals into a group, choose who speaks, and turn different perspectives into a clear next step. Every reply has a named participant and a visible source.">把终端拉进讨论组，选择这次请谁发言。让不同视角形成清楚的下一步，每条回复都有名字，也有来源。</p>
+          <ol class="group-steps">
+            <li><span aria-hidden="true">01</span><div><strong data-en="Bring the right participants">邀请合适的成员</strong><p data-en="Drag in a terminal, or select it from the member list. Confirm whether its DSH AI or an independent CLI task will join.">拖入终端，或从列表选择成员。明确由终端 DSH AI，还是独立 CLI 任务参会。</p></div></li>
+            <li><span aria-hidden="true">02</span><div><strong data-en="Discuss, then ask for a conclusion">先讨论，再整理结论</strong><p data-en="Gather views in one round, or discuss them in two. Choose one author to summarize agreements, differences, and actions.">一轮收集意见，两轮相互讨论。选择一位作者，整理共识、分歧与行动项。</p></div></li>
+            <li><span aria-hidden="true">03</span><div><strong data-en="Hand off the next step">把下一步交给搭档</strong><p data-en="Confirm an agent and acceptance criteria before work begins. Review the result, or ask for linked rework.">确认执行者与验收标准后开始。收到结果，再验收或要求返工。</p></div></li>
+          </ol>
+          <a class="text-link" href="https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md#把多个终端加入讨论组"><span data-en="Meet your terminal group">了解终端讨论组</span><span aria-hidden="true">↗</span></a>
+        </div>
+        <figure class="product-figure group-figure"><button class="screenshot-button" type="button" data-screenshot aria-label="放大终端讨论组截图" data-aria-en="Enlarge the Terminal Group screenshot"><img src="./assets/screenshots/terminal-group.jpg" width="1484" height="1234" loading="lazy" alt="Terminal Group：查看成员署名的讨论回复，选择作者整理结论，再安排下一步。alpha.9 实际界面。" data-alt-en="Terminal Group: read attributed replies, choose an author for the conclusion, and arrange the next step. Actual alpha.9 interface."><span class="image-expand" aria-hidden="true">⤢</span></button><figcaption><span data-en="A shared goal. Clear ownership.">同一个目标，清楚的分工。</span><span class="group-capture-label" data-en="alpha.9 · Actual interface">alpha.9 · 实际界面</span></figcaption></figure>
+      </div>
+      <div class="group-identity-note"><span class="group-identity-mark" aria-hidden="true">↳</span><p data-en="DSH AI keeps its existing terminal conversation. Pi and Codex join through independent CLI tasks, without resuming an open CLI chat. Kimi Code remains available in its native terminal; automatic Kimi CLI participation is not yet supported. A named conclusion is a proposal to review, not a vote from every member.">DSH AI 沿用所属终端的会话。Pi、Codex 以独立 CLI 任务参会，不续接已打开的 CLI 聊天。Kimi Code 保留原生终端交互，暂不支持自动 CLI 参会。结论注明作者，供你核对，不代表全员表决。</p></div>
+    </section>
+
     <section class="side-section" aria-labelledby="side-title">
       <div class="section-shell side-grid">
         <div class="feature-copy"><p class="eyebrow">SIDE TERMINAL</p><h2 id="side-title"><span data-en="Right beside">就在对话旁。</span><br><span data-en="your conversation.">刚好接得上。</span></h2><p data-en="Keep a terminal in DSH’s right sidebar. Bind it to the conversation you are working on, or keep an independent workspace open as you move between conversations.">把终端放在 DSH 右侧栏。可以关联当前对话，也可以独立运行，切换对话时继续保留自己的工作区。</p><ul class="quiet-list"><li data-en="Bound to a conversation, or independent">关联对话，或独立工作</li><li data-en="Expand when you need more room">需要空间时，展开工作区</li><li data-en="Keep each terminal’s context and draft together">上下文与草稿，跟随各自终端</li></ul><a class="text-link" href="#install"><span data-en="Make room for your next task">为下一件事，留个位置</span><span aria-hidden="true">↗</span></a></div>
@@ -101,11 +119,11 @@
 
     <section class="install-section section-shell" id="install" aria-labelledby="install-title">
       <div class="install-card"><div class="install-heading"><div><p class="eyebrow" data-en="READY WHEN YOU ARE.">下一件事，从这里开始。</p><h2 id="install-title"><span data-en="A smarter place">给你的 DSH，</span><br><span data-en="to get things done.">一只会干活的终端。</span></h2></div><img class="install-cat" src="./assets/logo.svg" width="128" height="128" alt="Mimi，SuperTerminal 的薄荷绿终端小猫" data-alt-en="Mimi, SuperTerminal’s mint-green terminal cat"></div>
-        <div class="install-requirements"><span>macOS</span><span>Node.js 24+</span><span>DSH 0.1.1-rc.2</span><span>0.1.0-alpha.8</span></div>
-        <div class="install-command"><div class="command-toolbar"><span data-en="Run in your terminal">在终端中运行</span><button id="copy-install" type="button"><span aria-hidden="true">⧉</span><span data-en="Copy command">复制命令</span></button></div><pre tabindex="0" aria-label="安装命令" data-aria-en="Installation command"><code id="install-code">dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.8/harzva-dsh-terminal-0.1.0-alpha.8.tgz</code></pre></div>
+        <div class="install-requirements"><span>macOS</span><span>Node.js 24+</span><span>DSH 0.1.1-rc.2</span><span>0.1.0-alpha.9</span></div>
+        <div class="install-command"><div class="command-toolbar"><span data-en="Run in your terminal">在终端中运行</span><button id="copy-install" type="button"><span aria-hidden="true">⧉</span><span data-en="Copy command">复制命令</span></button></div><pre tabindex="0" aria-label="安装命令" data-aria-en="Installation command"><code id="install-code">dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.9/harzva-dsh-terminal-0.1.0-alpha.9.tgz</code></pre></div>
         <p id="copy-feedback" class="copy-feedback" role="status" aria-live="polite"></p>
         <p class="install-note" data-en="After installation, restart the DSH profile you installed into (web for this command). Use the Terminal button in the input bar or enter /terminal to open the right sidebar. Configure a working DSH model before running AI tasks.">安装完成后，重启所选 DSH 配置（此命令为 web）。点击输入栏中的“终端”，或输入 /terminal 打开右侧栏。执行 AI 任务前，请先配置可用的 DSH 模型。</p>
-        <div class="install-links"><a href="https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md"><span data-en="Read the guide">阅读使用指南</span><span aria-hidden="true">↗</span></a><a href="https://github.com/Harzva/dsh-superterminal/releases/tag/v0.1.0-alpha.8"><span data-en="Release notes">版本更新</span><span aria-hidden="true">↗</span></a></div>
+        <div class="install-links"><a href="https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md"><span data-en="Read the guide">阅读使用指南</span><span aria-hidden="true">↗</span></a><a href="https://github.com/Harzva/dsh-superterminal/releases/tag/v0.1.0-alpha.9"><span data-en="Release notes">版本更新</span><span aria-hidden="true">↗</span></a></div>
       </div>
     </section>
 
@@ -113,7 +131,8 @@
       <details><summary><span data-en="Is this a standalone terminal app?">这是一个独立的终端软件吗？</span><span aria-hidden="true">+</span></summary><p data-en="SuperTerminal is a DSH plugin. It adds an AI task interface and native terminal panes to DSH, using DSH’s runtime, workspace permissions, and model configuration.">SuperTerminal 是 DSH 插件。在 DSH 中提供 AI 任务界面与原生终端窗格，使用 DSH 的运行时、工作区权限和模型配置。</p></details>
       <details><summary><span data-en="Can Side Terminal work independently?">Side Terminal 可以独立于对话吗？</span><span aria-hidden="true">+</span></summary><p data-en="Yes. Bind it to a conversation, or use an independent workspace session that stays in place when you switch conversations. Existing terminals are not migrated between these two scopes.">可以。你可以关联当前对话，也可以使用独立工作区会话，在切换对话时继续保留。两种范围中的已有终端分别归属各自会话。</p></details>
       <details><summary><span data-en="Does every agent support background handoffs?">所有智能体都支持后台任务交接吗？</span><span aria-hidden="true">+</span></summary><p data-en="Installed CLIs can run in native terminal panes. Managed background handoffs currently support the Pi and Codex protocols, with result review and linked rework. Launching a CLI and managing a background task are separate capabilities.">已安装的 CLI 可以在原生终端窗格中运行。目前受管后台交接支持 Pi 与 Codex 协议，可验收结果并关联返工。打开 CLI 与管理后台任务是两项独立能力。</p></details>
-      <details><summary><span data-en="Which platforms are supported?">目前支持哪些环境？</span><span aria-hidden="true">+</span></summary><p data-en="The public alpha.8 release is verified on macOS with Node.js 24+ and official DSH 0.1.1-rc.2. Other operating systems and DSH versions have not been verified for this release.">当前公开 alpha.8 已在 macOS、Node.js 24+ 与官方 DSH 0.1.1-rc.2 上验证。此版本尚未验证其他操作系统与 DSH 版本。</p></details>
+      <details><summary><span data-en="Will a group share all my terminal history?">加入讨论组，会分享所有终端历史吗？</span><span aria-hidden="true">+</span></summary><p data-en="Joining a group does not broadcast old terminal logs. You choose which text to attach before sending. Each terminal’s DSH AI retains its own conversation context; only its new reply is added to the group. Stop a discussion to keep completed replies, and start a new request explicitly when ready. Interrupted discussions are not automatically rerun after a restart.">加入组不会自动广播旧终端日志，你可以在发送前选择并预览附上的内容。各终端 DSH AI 保留自己的会话上下文，只把本次回复加入组内讨论。停止后保留已完成的发言；重启后中断的讨论不会自动重跑，需要你明确发起下一次问题。</p></details>
+      <details><summary><span data-en="Which platforms are supported?">目前支持哪些环境？</span><span aria-hidden="true">+</span></summary><p data-en="Alpha.9 supports macOS with Node.js 24+ and official DSH 0.1.1-rc.2. Windows, remote terminals, and other DSH versions are not currently supported.">alpha.9 支持 macOS、Node.js 24+ 与官方 DSH 0.1.1-rc.2。当前暂不支持 Windows、远程终端或其他 DSH 版本。</p></details>
     </div></section>
   </main>
 
@@ -122,7 +141,7 @@
   <dialog id="screenshot-dialog" aria-labelledby="screenshot-caption">
     <div class="lightbox-toolbar"><p id="screenshot-caption"></p><button id="close-screenshot" type="button" aria-label="关闭截图" data-aria-en="Close screenshot">×</button></div>
     <div class="lightbox-scroll" tabindex="0"><img id="screenshot-full" alt=""></div>
-    <div class="lightbox-controls"><div><button id="previous-screenshot" type="button" aria-label="上一张截图" data-aria-en="Previous screenshot">←</button><span id="screenshot-position">1 / 4</span><button id="next-screenshot" type="button" aria-label="下一张截图" data-aria-en="Next screenshot">→</button></div><p id="screenshot-feedback" role="status" aria-live="polite"></p><button id="toggle-zoom" type="button" aria-pressed="false"><span data-zoom-label>原始大小</span><span aria-hidden="true">⤢</span></button></div>
+    <div class="lightbox-controls"><div><button id="previous-screenshot" type="button" aria-label="上一张截图" data-aria-en="Previous screenshot">←</button><span id="screenshot-position">1 / 5</span><button id="next-screenshot" type="button" aria-label="下一张截图" data-aria-en="Next screenshot">→</button></div><p id="screenshot-feedback" role="status" aria-live="polite"></p><button id="toggle-zoom" type="button" aria-pressed="false"><span data-zoom-label>原始大小</span><span aria-hidden="true">⤢</span></button></div>
   </dialog>
 </body>
 </html>

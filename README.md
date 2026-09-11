@@ -6,25 +6,26 @@
 
 <p align="center"><strong>用自然语言执行任务，让 Side Terminal 成为对话旁的工作台。</strong></p>
 
-<p align="center">在 DSH 对话旁执行 AI 任务，打开你熟悉的智能体 CLI，把工作台排成自己的样子。</p>
+<p align="center">在 DSH 对话旁执行 AI 任务，邀请不同终端一起讨论，把结论交给合适的智能体。</p>
 
 <p align="center">
   <a href="https://harzva.github.io/dsh-superterminal/">官网交互导览</a> ·
   <a href="#安装">安装</a> ·
+  <a href="#让不同终端一起讨论">终端讨论组</a> ·
   <a href="https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md">使用指南</a> ·
   <a href="https://github.com/Harzva/dsh-superterminal/releases">更新记录</a>
 </p>
 
 ![AI 修复购物车，Shell 并排展示测试结果与修改后的代码](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/workspace.jpg)
 
-**实测用例：** 在独立示例项目中修复购物车合计，`35 → 80`，相关 **2 项测试通过**。所有截图均为 alpha.8 实际界面。
+**实测用例：** 在独立示例项目中修复购物车合计，`35 → 80`，相关 **2 项测试通过**。购物车任务、Side Terminal 与智能体目录截图来自 alpha.8 实际界面。
 
 ## 安装
 
-当前版本 **0.1.0-alpha.8**，支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
+当前版本 **0.1.0-alpha.9**，新增 **Terminal Group 终端讨论组**。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.8/harzva-dsh-terminal-0.1.0-alpha.8.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.9/harzva-dsh-terminal-0.1.0-alpha.9.tgz
 ```
 
 首次运行：
@@ -58,6 +59,25 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 ![DSH 右侧的 Side Terminal](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/side-terminal.jpg)
 
 </details>
+
+## 让不同终端，一起讨论
+
+**Terminal Group** 把同一工作台中的终端组成讨论组，保留各自的窗口、进程与布局。
+
+![DSH AI 与 Pi 参会，讨论结论交给 Agent 执行](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/terminal-group.jpg)
+
+1. 拖动终端标题到讨论组，或点击 **新建讨论组** 选择成员；每组最多 6 个终端。
+2. 写下问题，指定本次发言的成员。**1 轮**收集各自意见；**2 轮**让成员参考上一轮回复继续讨论。
+3. 选择一位成员 **形成结论**。结论注明作者，整理共识、分歧与待办；它不代表所有成员已经同意。
+4. 点击 **将结论交给 Agent 执行**，确认执行者与验收标准。结果返回后可验收，或携带原目标和结果安排返工。
+
+| 参会方式 | 实际使用的会话 |
+| --- | --- |
+| 终端 DSH AI | 沿用这个终端已有的 DSH AI 会话与模型，保留它自己的上下文。 |
+| Pi / piagent、Codex | 每次发言启动独立 CLI 任务，不继承终端里已经打开的 CLI 对话。 |
+| Kimi Code 等其他 CLI | 保留原生终端交互，暂不支持自动 CLI 参会。可以明确选择该终端的 DSH AI，回复按 DSH AI 身份署名。 |
+
+加入组不会自动广播旧终端日志；你可以预览并附上选中的内容。停止讨论会保留已完成的发言；重启后未完成的讨论显示中断，不会自动重跑。讨论组沿用 DSH 的会话、本地记录和现有 Agent 交接能力，无需额外运行群聊或消息中转服务。
 
 ## 熟悉的智能体，在同一个工作台
 

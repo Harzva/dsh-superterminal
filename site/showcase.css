@@ -83,6 +83,22 @@ html[lang="en"] .hero h1 { font-size: clamp(48px, 4.8vw, 64px); line-height: 1.1
 .agents-section { padding-bottom: 84px; }
 .agent-names span { font-size: 12px; }
 .feature-copy>p.fine-print { font-size: 12px; }
+.terminal-group-section { padding-top: 0; padding-bottom: 82px; scroll-margin-top: 105px; }
+.group-grid { gap: 48px; grid-template-columns: .94fr 1.4fr; }
+.group-eyebrow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.group-release { padding: 3px 7px; border: 1px solid #c5d9c1; border-radius: 5px; background: #e8efe1; color: #54785a; letter-spacing: .2px; font: 9px/1.5 ui-monospace, monospace; }
+.group-grid h2 { font-size: clamp(31px, 3.2vw, 40px); }
+.group-steps { display: grid; gap: 17px; list-style: none; margin: 27px 0 0; padding: 0; }
+.group-steps li { display: flex; align-items: flex-start; gap: 12px; }
+.group-steps li>span { flex-shrink: 0; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid #d5e0cb; border-radius: 7px; background: #edf1e5; color: #769473; font: 9px/1 ui-monospace, monospace; }
+.group-steps strong { font-size: 12px; font-weight: 550; color: #405d47; }
+.group-steps p { font-size: 11px; line-height: 1.85; color: #76816f; margin-top: 4px; }
+.group-figure { background: #f5f7ef; border-color: #cdd8c7; box-shadow: 0 22px 44px -24px #254f323a; }
+.group-figure figcaption { flex-wrap: wrap; font-size: 10px; }
+.group-capture-label { font: 8px/1.5 ui-monospace, monospace; color: #879780; white-space: nowrap; }
+.group-identity-note { display: flex; align-items: flex-start; gap: 14px; padding-top: 20px; margin-top: 32px; border-top: 1px solid #dce2d4; }
+.group-identity-mark { flex-shrink: 0; color: #8ca382; font: 20px/1.2 ui-monospace, monospace; }
+.group-identity-note p { max-width: 990px; color: #788671; font-size: 11px; line-height: 1.9; }
 .install-command pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 .command-toolbar { font-size: 12px; }
 .command-toolbar button { font-size: 12px; min-height: 30px; }
@@ -116,6 +132,7 @@ dialog.is-zoomed .lightbox-scroll img { width: auto; min-width: 0; max-width: no
   .hero-figure .screenshot-button { aspect-ratio: 1.38; }
   .proof-strip { gap: 20px; }
   .proof-result { padding-left: 20px; }
+  .group-grid { gap: 31px; grid-template-columns: 1fr 1.2fr; }
 }
 @media (max-width: 760px) {
   .site-header { height: 68px; }
@@ -157,6 +174,15 @@ dialog.is-zoomed .lightbox-scroll img { width: auto; min-width: 0; max-width: no
   .workspace-notes p>span { font-size: 11px; }
   .agents-section { padding-bottom: 60px; }
   .feature-copy>p.fine-print { font-size: 11px; }
+  .terminal-group-section { padding-bottom: 54px; }
+  .group-grid { grid-template-columns: 1fr; gap: 28px; }
+  .group-grid h2 { font-size: 31px; }
+  .group-steps { gap: 15px; margin-top: 23px; }
+  .group-steps p { max-width: 450px; }
+  .group-figure figcaption { font-size: 10px; }
+  .group-capture-label { font-size: 8px; }
+  .group-identity-note { margin-top: 23px; padding-top: 17px; gap: 11px; }
+  .group-identity-note p { font-size: 10px; line-height: 1.9; }
   .install-card { padding: 30px 23px; }
   .install-command pre { font-size: 11px; line-height: 1.9; }
   .install-note { font-size: 11px; }
