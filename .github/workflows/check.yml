@@ -15,6 +15,12 @@ jobs:
           cache: npm
       - run: npm install --global pnpm@11.19.0
       - run: npm ci --ignore-scripts
+      - name: Install shells for real PTY checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes zsh
+          /bin/zsh --version
+          /bin/bash --version
       - run: pnpm check
       - run: pnpm run pack:dsh
       - uses: actions/upload-artifact@v4
