@@ -115,7 +115,7 @@
 .dsh-terminal-workspace{position:relative;--dt-bg:#0d1015;--dt-panel:#10151b;--dt-border:#262c35;--dt-muted:#8c94a3;font-size:12px;background:radial-gradient(ellipse at 30% 0,#18202b50,transparent 60%),var(--dt-bg)}
 .dsh-terminal-workspace button,.dsh-terminal-workspace input,.dsh-terminal-workspace textarea{transition:background .16s,border-color .16s,color .16s}
 .dsh-terminal-workspace button:focus-visible,.dsh-terminal-workspace input:focus-visible,.dsh-terminal-workspace textarea:focus-visible{outline:2px solid #9ce3cd;outline-offset:3px}
-.dsh-terminal-workspace .dt-workspace-bar{height:68px;gap:8px;padding:12px 22px;border-bottom-color:#ffffff0b}
+.dsh-terminal-workspace .dt-workspace-bar{height:auto;min-height:60px;gap:8px;padding:10px 18px;border-bottom-color:#ffffff0b}
 .dsh-terminal-workspace .dt-brand-mark{display:grid;place-items:center;width:32px;height:32px;border:1px solid #8adbb533;border-radius:10px;background:#91e0c410;color:#b6efdb;font-size:18px}
 .dsh-terminal-workspace .dt-brand strong{font-size:15px;letter-spacing:-.4px}.dsh-terminal-workspace .dt-brand-subtitle{font-size:9px;letter-spacing:1.8px;margin-left:6px}
 .dsh-terminal-workspace .dt-toolbar-button{border-color:transparent;padding:8px 11px;color:#929eac;font-size:11px}.dsh-terminal-workspace .dt-toolbar-button[aria-pressed=true]{background:#b3e7d714;color:#b3e7d7;border-color:#b3e7d726}
@@ -206,3 +206,18 @@
 .dsh-terminal-workspace.dt-compact .dt-workspace-bar{padding:8px 12px;gap:6px;min-height:44px}.dsh-terminal-workspace.dt-compact .dt-brand,.dsh-terminal-workspace.dt-compact .dt-layout-select,.dsh-terminal-workspace.dt-compact .dt-workspace-context{display:none}.dsh-terminal-workspace.dt-compact .dt-toolbar-button{padding:6px 9px;font-size:10px}.dsh-terminal-workspace.dt-compact .dt-task-identity{padding:8px 12px;align-items:stretch;flex-direction:column;gap:6px}.dsh-terminal-workspace.dt-compact .dt-task-identity>div{width:100%}.dsh-terminal-workspace.dt-compact .dt-task-identity button{max-width:none;flex:1;text-align:left}.dsh-terminal-workspace.dt-compact .dt-task-identity i{margin-left:auto}.dsh-terminal-workspace.dt-compact .dt-smart{top:var(--dt-helper-top,112px);width:100%;padding:17px}.dsh-terminal-workspace.dt-compact .dt-smart-intro{display:none}.dsh-terminal-workspace.dt-compact .dt-assistant-target{margin:12px 0 9px;padding:11px}.dsh-terminal-workspace.dt-compact .dt-prompt-chips{flex-direction:row;flex-wrap:wrap;margin:14px 0}.dsh-terminal-workspace.dt-compact .dt-prompt-chips button{padding:7px 9px;font-size:10px}.dsh-terminal-workspace.dt-compact .dt-smart form{margin-top:14px}
 
 .dsh-terminal-workspace .dt-pane{position:relative}
+
+.dsh-terminal-workspace .dt-toolbar-tools { position:relative; margin-left:auto; flex-shrink:0; }
+.dsh-terminal-workspace .dt-tools-toggle { display:flex; align-items:center; gap:6px; }
+.dsh-terminal-workspace .dt-tools-toggle[aria-expanded="true"],
+.dsh-terminal-workspace .dt-toolbar-button[aria-expanded="true"] { background:#b3e7d714; color:#b3e7d7; border-color:#b3e7d726; }
+.dsh-terminal-workspace .dt-tools-popover { position:absolute; top:calc(100% + 8px); right:0; z-index:20; width:238px; padding:6px; border:1px solid #39453f; border-radius:10px; background:#151e1c; box-shadow:0 14px 36px #0006; display:flex; flex-direction:column; gap:2px; }
+.dsh-terminal-workspace .dt-tools-popover>.dt-toolbar-button { text-align:left; padding:9px 11px; min-height:36px; font-size:12px; color:#c3d1ca; border-radius:6px; }
+.dsh-terminal-workspace .dt-tools-popover .dt-refresh-list { margin-top:4px; border-top:1px solid #ffffff10; border-radius:0 0 6px 6px; color:#91a69b; }
+.dsh-terminal-workspace .dt-tools-layout { margin-top:4px; padding:10px 6px; border-block:1px solid #ffffff10; display:flex; flex-direction:column; gap:10px; }
+.dsh-terminal-workspace .dt-tools-layout .dt-layout-select { justify-content:space-between; font-size:11px; }
+.dsh-terminal-workspace .dt-tools-layout .dt-layout-actions { display:flex; margin:0; gap:4px; }
+.dsh-terminal-workspace .dt-tools-layout .dt-layout-actions button { flex:1; padding:7px 6px; border-color:#34483e; font-size:11px; }
+.dsh-terminal-workspace.dt-compact .dt-workspace-bar { flex-wrap:nowrap; gap:2px; padding:8px 10px; min-height:48px; }
+.dsh-terminal-workspace.dt-compact .dt-workspace-bar>.dt-toolbar-button,
+.dsh-terminal-workspace.dt-compact .dt-tools-toggle { font-size:11px; min-height:30px; padding:6px 8px; }

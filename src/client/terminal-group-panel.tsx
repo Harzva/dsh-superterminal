@@ -3,6 +3,7 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives';
 import { NativeResultReader } from './native-result-reader';
 import { resultExcerpt } from './result-types';
 import type { ReadNativeResult } from './result-types';
+import { groupReadiness, memberReadiness } from './group-readiness.mjs';
 import { AgentIcon } from './agent-icon';
 import type { TerminalBridge } from './types';
 import type { GroupCandidate, GroupCreateInput, GroupMember, GroupMemberInput, GroupMessage, GroupSendInput, GroupSummary, GroupUpdateInput, TerminalGroup } from './group-types';
@@ -148,11 +149,21 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
   const current = useRef(props); current.current = props;
   const scroll = useRef<HTMLDivElement>(null), nearEnd = useRef(true);
   const [unseen, setUnseen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerToggle = useRef<HTMLButtonElement>(null);
+  const groupSelector = useRef<HTMLSelectElement>(null), wasOpened = useRef(false);
   const draft = drafts[group?.id || ''] || blankDraft();
   const running = group?.status === 'running';
   const blocked = busy || !!pending || !!state.error;
-  const targets = (draft.targets ?? group?.members.map(item => item.id) ?? []).filter(id => group?.members.some(item => item.id === id));
-  const author = draft.author && group?.members.some(item => item.id === draft.author) ? draft.author : group?.members[0]?.id || '';
+  const targets = draft.targets ?? group?.members.map(item => item.id) ?? [];
+  const author = draft.author ?? group?.members[0]?.id ?? '';
+  const readiness = groupReadiness(group?.members ?? [], props.terminals, state.candidates, targets, author);
+  const availableTargets = group?.members.filter(member => readiness.byId.get(member.id)?.available).map(member => member.id) ?? [];
+  const allAvailableSelected = targets.length > 0 && !readiness.invalidTargets.length && targets.length === availableTargets.length;
+  const recipientNames = targets.map(id => group?.members.find(member => member.id === id)?.title || '已移除成员').join('、');
+  const recipientIssue = readiness.invalidTargets.length ? `${readiness.invalidTargets.length} 位已选成员暂不可用，请调整参会对象后发送。` : !targets.length ? '尚未选择参会对象。' : '';
+  const operationError = !editor ? group?.operation?.error : undefined;
+  const feedback = state.error || (pending ? notice || (busy ? '正在确认操作…' : '上次操作正在等待确认。') : operationError || notice);
   const latestConclusion = group?.messages.slice().reverse().find(message => message.kind === 'conclusion');
   const hasReplies = group?.messages.some(message => message.kind === 'reply');
   const activeMember = group?.members.find(member => member.id === group.operation?.activeMemberId);
@@ -163,10 +174,11 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
     if (!group || pending?.kind === 'send' && pending.input.groupId === group.id) return;
     setDrafts(previous => ({...previous, [group.id]: {...(previous[group.id] || blankDraft()), ...patch}}));
   };
+  useEffect(() => { if (props.opened && !wasOpened.current) groupSelector.current?.focus(); wasOpened.current = props.opened; }, [props.opened]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
     setDrafts({}); setEditor(undefined); setPending(undefined); setBusy(false); setNotice('');
-    setArchiveConfirmation(undefined); seenSeed.current = undefined; flight.current = false;
+    setArchiveConfirmation(undefined); setPickerOpen(false); seenSeed.current = undefined; flight.current = false;
   }, [props.bridge]);
   useEffect(() => {
     if (pending || state.selectionRequest === navigation.current.request) return;
@@ -196,10 +208,21 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
     if (pending?.kind !== 'send' || group?.id !== pending.input.groupId) return;
     if (group.operation?.requestId !== pending.input.requestId && !group.messages.some(message => message.requestId === pending.input.requestId)) return;
     const id = pending.input.groupId;
-    setPending(undefined); setNotice('已核对到这次讨论，记录会继续更新。');
+    setPending(undefined); setNotice('');
     if (pending.input.kind === 'discussion') setDrafts(previous => ({...previous, [id]: {...(previous[id] || blankDraft()), prompt: '', excerpt: undefined}}));
   }, [group, pending]);
-  useEffect(() => { nearEnd.current = true; setUnseen(false); }, [state.selectedId]);
+  // Capture defaults once per group so later member changes never silently
+  // replace the people the user saw selected in their draft.
+  useEffect(() => {
+    if (!group) return;
+    setDrafts(previous => {
+      const saved = previous[group.id];
+      if (saved?.targets !== undefined && saved?.author !== undefined) return previous;
+      return {...previous, [group.id]: {...(saved || blankDraft()), targets: saved?.targets ?? group.members.map(member => member.id), author: saved?.author ?? group.members[0]?.id ?? ''}};
+    });
+  }, [group?.id]);
+  useEffect(() => { nearEnd.current = true; setUnseen(false); setPickerOpen(false); }, [state.selectedId]);
+  useEffect(() => { setNotice(''); }, [group?.id, group?.operation?.requestId, group?.operation?.status, group?.operation?.error]);
   useEffect(() => {
     if (!props.opened || !scroll.current) return;
     if (nearEnd.current) scroll.current.scrollTop = scroll.current.scrollHeight;
@@ -221,9 +244,9 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
         setEditor(undefined); current.current.state.select(result.id); setNotice(request.kind === 'create' ? '讨论组已建立。选择成员，开始讨论。' : '成员设置已保存。');
       } else if (request.kind === 'send') {
         if (request.input.kind === 'discussion') setDrafts(previous => ({...previous, [result.id]: {...(previous[result.id] || blankDraft()), prompt: '', excerpt: undefined}}));
-        setNotice('已开始，回复会按成员显示。你可以暂时收起面板。');
+        setNotice(''); setPickerOpen(false);
       } else if (request.kind === 'archive') { current.current.state.overview(); setArchiveConfirmation(undefined); setNotice('讨论组已归档，终端仍保留在工作区。'); }
-      else setNotice('已请求停止本组讨论，已完成的发言会保留。');
+      else setNotice('');
     } catch (error) {
       if (alive.current && current.current.bridge === owner) {
         const message = error instanceof Error ? error.message : '';
@@ -241,7 +264,11 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
     void perform(editor.groupId ? {kind: 'update', input: {...input, groupId: editor.groupId}} : {kind: 'create', input});
   };
   const send = (kind: 'discussion' | 'conclusion') => {
-    if (!group || running || blocked || (kind === 'discussion' ? !draft.prompt.trim() || !targets.length : !hasReplies || !author)) return;
+    if (!group || running || blocked || (kind === 'discussion' ? !draft.prompt.trim() : !hasReplies)) return;
+    if (kind === 'discussion' ? !readiness.canSend : !readiness.canConclude) {
+      if (kind === 'discussion') setPickerOpen(true);
+      setNotice(kind === 'discussion' ? recipientIssue : '所选结论作者暂不可用，请重新选择。'); return;
+    }
     void perform({kind: 'send', input: {groupId: group.id, requestId: crypto.randomUUID(), kind,
       prompt: kind === 'discussion' ? draft.prompt.trim() : '请根据本组已完成的讨论，整理共识、仍有分歧的问题，以及可分派的下一步和验收标准。保留不同意见，不把未验证的内容当作事实。',
       targets: kind === 'discussion' ? targets : [author], rounds: kind === 'discussion' ? draft.rounds : 1,
@@ -249,17 +276,21 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
   };
   const startNew = () => { state.select(undefined); setEditor({title: '', members: []}); setNotice(''); setArchiveConfirmation(undefined); };
   const displayTitle = (id: string) => terminalTitle(props.terminals.find(item => item.id === id), state.candidates.find(item => item.terminalId === id));
-  const editorValid = !!editor?.title.trim() && !!editor.members.length && editor.members.every(member => state.candidates.some(candidate => candidate.terminalId === member.terminalId && candidate.modes.some(mode => mode.mode === member.mode && mode.available)));
+  const editorValid = !!editor?.title.trim() && !!editor.members.length && editor.members.every(member => memberReadiness(member, props.terminals, state.candidates).available);
+  const showTerminal = (id: string) => { if (props.onShowTerminal(id) === false) setNotice('这个终端已不可用，讨论记录仍保留。'); };
+  const selectedView = !!group && !editor;
 
-  return <section className="dt-group-panel" hidden={!props.opened} aria-label="终端讨论组" onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') props.onClose(); }}>
-    <header className="dt-group-header"><div className="dt-group-header-title"><GroupGlyph/><div><span>TERMINAL GROUP</span><h2>一起，把问题聊透。</h2></div></div>
+  return <section className={`dt-group-panel${selectedView ? ' has-selection' : ''}`} hidden={!props.opened} aria-label="终端讨论组"
+    onPointerDownCapture={event => { if (pickerOpen && !(event.target as Element).closest('.dt-group-context')) setPickerOpen(false); }}
+    onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') { if (pickerOpen) {setPickerOpen(false);pickerToggle.current?.focus();} else props.onClose(); } }}>
+    <header className="dt-group-header"><div className="dt-group-header-title"><GroupGlyph/><div>{!selectedView && <span>TERMINAL GROUP</span>}<h2>{selectedView ? '终端讨论组' : '一起，把问题聊透。'}</h2></div></div>
       <button type="button" className="dt-group-close" aria-label="关闭终端讨论组" onClick={props.onClose}>×</button></header>
-    <div className="dt-group-navigation"><label><span className="dt-group-sr-only">选择讨论组</span><select aria-label="选择讨论组" value={state.selectedId || ''} onChange={event => { event.target.value ? state.select(event.target.value) : state.overview(); setEditor(undefined); setArchiveConfirmation(undefined); }}>
+    <div className="dt-group-navigation"><label><span className="dt-group-sr-only">选择讨论组</span><select ref={groupSelector} aria-label="选择讨论组" value={state.selectedId || ''} onChange={event => { event.target.value ? state.select(event.target.value) : state.overview(); setEditor(undefined); setArchiveConfirmation(undefined); setNotice(''); }}>
       <option value="">所有讨论组{state.groups.length ? ` · ${state.groups.length}` : ''}</option>
       {state.groups.map(item => <option key={item.id} value={item.id}>{item.title}{item.status === 'running' ? ' · 讨论中' : ''}</option>)}
     </select></label><button type="button" className="dt-group-add" disabled={blocked} onClick={startNew}>＋ 新建组</button></div>
-    {(state.error || notice || pending) && <div className={`dt-group-notice${state.error || pending && !busy ? ' is-warning' : ''}`} role="status">
-      <span>{state.error || notice || (busy ? '正在确认操作…' : '上次操作正在等待确认。')}</span>
+    {(feedback || pending) && <div className={`dt-group-notice${state.error || operationError || pending && !busy ? ' is-warning' : ''}`} role="status">
+      <span>{feedback}</span>
       {state.error ? <button type="button" disabled={busy} onClick={() => { void state.refresh(); }}>重新连接</button>
         : pending && !busy ? <button type="button" onClick={() => { void perform(pending); }}>核对这次操作</button> : null}
     </div>}
@@ -270,7 +301,7 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
       <div className="dt-group-candidate-list">{state.candidates.map(candidate => {
         const terminal = props.terminals.find(item => item.id === candidate.terminalId);
         const selected = editor.members.find(item => item.terminalId === candidate.terminalId);
-        const unavailable = !candidate.modes.some(mode => mode.available);
+        const unavailable = !terminal || !candidate.modes.some(mode => mode.available);
         return <div key={candidate.terminalId} className={`dt-group-candidate${selected ? ' is-selected' : ''}`}>
           <label className="dt-group-candidate-heading"><input type="checkbox" checked={!!selected} disabled={blocked || !selected && (editor.members.length >= 6 || unavailable)} onChange={() => {
             const member = memberInput(candidate, terminal);
@@ -290,33 +321,61 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
       <div className="dt-group-editor-footer"><p>不会自动分享旧日志。发送前可查看并选择共享内容。</p><div><button type="button" disabled={busy || !!pending} onClick={() => {setEditor(undefined);setNotice('');}}>暂不修改</button><button type="submit" className="dt-group-primary" disabled={blocked || !editorValid}>{busy ? '正在保存…' : editor.groupId ? '保存成员' : '建立讨论组'}</button></div></div>
     </form></div> : group ? <>
       <div className="dt-group-detail-heading"><div><h3>{group.title}</h3><span className={`dt-group-state is-${group.status}`}><i/>{terminalGroupStatus(group)}</span></div><button type="button" disabled={blocked || running} onClick={() => {setEditor({groupId: group.id, title: group.title, members: group.members.map(({terminalId,mode,title}) => ({terminalId,mode,title}))});setNotice('');}}>管理成员</button></div>
-      <div className="dt-group-members" aria-label="参会成员">{group.members.map(member => <button type="button" key={member.id} onClick={() => props.onShowTerminal(member.terminalId)} title={`查看 ${member.title} 的来源终端`}>
-        <AgentIcon launcher={member.mode === 'dsh-ai' ? 'deepseek' : member.launcher}/><span><strong>{member.title}</strong><small>{modeName(member.mode)}</small></span><span aria-hidden="true">↗</span></button>)}</div>
       <div className="dt-group-timeline" ref={scroll} onScroll={() => { const node = scroll.current; if (!node) return; nearEnd.current = node.scrollHeight - node.scrollTop - node.clientHeight < 60; if (nearEnd.current) setUnseen(false); }}>
         {!group.messages.length ? <div className="dt-group-discussion-empty"><span>不同视角，同一个目标。</span><p>写下想讨论的问题，选择需要发言的成员。每条回复都会注明真实来源。</p><small>一轮收集意见；两轮会让成员参考上一轮回复。</small></div>
-          : <div className="dt-group-messages">{group.messages.map(message => <GroupReply key={message.id} readResult={props.bridge.runResult} message={message} member={group.members.find(member => member.id === message.memberId)} terminalIds={props.terminals.map(terminal => terminal.id)} onShowTerminal={id => {props.onShowTerminal(id);}}/>)}</div>}
-        {running && <div className="dt-group-progress" role="status"><i/><span>{group.operation?.kind === 'conclusion' ? '正在整理结论' : `第 ${group.operation?.round || 1} / ${group.operation?.rounds || 1} 轮`}{activeMember ? ` · 等待 ${activeMember.title}` : ' · 等待成员回复'}</span></div>}
+          : <div className="dt-group-messages">{group.messages.map(message => <GroupReply key={message.id} readResult={props.bridge.runResult} message={message} member={group.members.find(member => member.id === message.memberId)} terminalIds={props.terminals.map(terminal => terminal.id)} onShowTerminal={showTerminal}/>)}</div>}
+        {running && !operationError && <div className="dt-group-progress" role="status"><i/><span>{group.operation?.kind === 'conclusion' ? '正在整理结论' : `第 ${group.operation?.round || 1} / ${group.operation?.rounds || 1} 轮`}{activeMember ? ` · 等待 ${activeMember.title}` : ' · 等待成员回复'}</span></div>}
         {group.status === 'interrupted' && <p className="dt-group-interrupted">上次讨论已中断，完成的发言仍在这里。你可以重新提出问题，继续讨论。</p>}
-        {!!hasReplies && !running && <section className="dt-group-conclusion"><div><span>把讨论变成下一步</span><small>由一位成员整理共识、分歧与行动项。</small></div><label><span className="dt-group-sr-only">结论整理者</span><select aria-label="结论整理者" value={author} disabled={blocked} onChange={event => changeDraft({author: event.target.value})}>{group.members.map(member => <option value={member.id} key={member.id}>{member.title} · {modeName(member.mode)}</option>)}</select></label><button type="button" disabled={blocked || !author} onClick={() => send('conclusion')}>形成结论 ↗</button></section>}
+        <details className="dt-group-next-steps" key={group.id}>
+          <summary><span>整理结论与下一步</span><i aria-hidden="true">⌄</i></summary>
+          <div className="dt-group-next-steps-content">
+        {!!hasReplies && !running && <section className="dt-group-conclusion"><div><span>把讨论变成下一步</span><small>由一位成员整理共识、分歧与行动项。</small></div><label><span className="dt-group-sr-only">结论整理者</span><select aria-label="结论整理者" value={author} disabled={blocked} onChange={event => changeDraft({author: event.target.value})}>
+          {!group.members.some(member => member.id === author) && <option value={author} disabled>原作者已移除，请重新选择</option>}
+          {group.members.map(member => <option value={member.id} key={member.id} disabled={!readiness.byId.get(member.id)?.available}>{member.title} · {readiness.byId.get(member.id)?.available ? modeName(member.mode) : readiness.byId.get(member.id)?.label}</option>)}
+        </select></label><button type="button" disabled={blocked || !readiness.canConclude} onClick={() => send('conclusion')}>形成结论 ↗</button>
+          {!readiness.canConclude && <p className="dt-group-action-hint">所选作者暂不可用，请重新选择结论整理者。</p>}</section>}
         {latestConclusion && <div className="dt-group-handoff"><button className="dt-group-primary" type="button" disabled={blocked || running || !sourceForHandoff} onClick={() => {
           if (!sourceForHandoff) return;
           const goal = group.messages.find(message => message.kind === 'user')?.text || group.title;
           props.onHandoff({groupId: group.id, sourceTerminalId: sourceForHandoff.id, prompt: `讨论组：${group.title}\n原目标：${goal}\n\n请根据讨论结论完成下一步，并按结论中的验收标准返回可核对的结果。`.slice(0,4000), excerpt: resultExcerpt(latestConclusion)});
         }}>将结论交给 Agent 执行 <span aria-hidden="true">↗</span></button><small>{sourceForHandoff ? '下一步选择执行者与验收标准，确认后才会开始。' : '原成员终端已关闭。请先添加可用终端，再安排执行。'}</small></div>}
+        <div className="dt-group-archive">{archiveConfirmation === group.id ? <><span>归档后会从列表隐藏，终端保持打开。</span><button type="button" disabled={blocked || running} onClick={() => {void perform({kind:'archive',input:{groupId:group.id}});}}>确认归档</button><button type="button" disabled={blocked} onClick={() => setArchiveConfirmation(undefined)}>取消</button></> : <button type="button" disabled={blocked || running} onClick={() => setArchiveConfirmation(group.id)}>归档讨论组</button>}</div>
+          </div>
+        </details>
       </div>
       {unseen && <button className="dt-group-new-replies" type="button" onClick={() => {if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;nearEnd.current=true;setUnseen(false);}}>查看最新发言 ↓</button>}
       <footer className="dt-group-footer">
         <form onSubmit={event => {event.preventDefault();send('discussion');}}>
-          <div className="dt-group-target-heading"><span>本次请谁回答</span><button type="button" disabled={blocked} onClick={() => changeDraft({targets: targets.length === group.members.length ? [] : group.members.map(member => member.id)})}>{targets.length === group.members.length ? '取消全选' : '选择全部'}</button></div>
-          <div className="dt-group-targets">{group.members.map(member => <button type="button" key={member.id} aria-pressed={targets.includes(member.id)} disabled={blocked} onClick={() => changeDraft({targets: targets.includes(member.id) ? targets.filter(id => id !== member.id) : [...targets,member.id]})}><span aria-hidden="true">{targets.includes(member.id) ? '✓' : '＋'}</span>{member.title}</button>)}</div>
-          {(draft.excerpt || props.excerpt?.text) && <div className="dt-group-excerpt">{draft.excerpt ? <><div><span>本次共享 · {displayTitle(draft.excerpt.terminalId)} 的选段</span><button type="button" aria-label="取消共享选段" disabled={blocked} onClick={() => changeDraft({excerpt: undefined})}>×</button></div><details><summary>查看共享内容 · {draft.excerpt.text.length} 字</summary><pre>{draft.excerpt.text}</pre></details></>
-            : <button type="button" disabled={blocked} onClick={() => {if (props.excerpt) changeDraft({excerpt: {terminalId: props.excerpt.terminalId, text: props.excerpt.text.slice(0,8000)}});}}>＋ 附上 {displayTitle(props.excerpt!.terminalId)} 的选中内容</button>}</div>}
-          <div className="dt-group-composer"><textarea aria-label="讨论问题" placeholder="请大家从各自角度提出意见，最后给出下一步…" rows={3} maxLength={4000} value={draft.prompt} disabled={!!pending} onChange={event => changeDraft({prompt: event.target.value})} onKeyDown={event => {if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {event.preventDefault();send('discussion');}}}/>
-            <div className="dt-group-composer-actions"><label><span className="dt-group-sr-only">讨论轮数</span><select aria-label="讨论轮数" value={draft.rounds} disabled={blocked} onChange={event => changeDraft({rounds:Number(event.target.value) as 1|2})}><option value="1">1 轮 · 收集意见</option><option value="2">2 轮 · 相互讨论</option></select></label>{running ? <button type="button" className="dt-group-stop" disabled={blocked} onClick={() => {void perform({kind:'stop',input:{groupId:group.id}});}}>■ 停止讨论</button> : <button type="submit" className="dt-group-primary" disabled={blocked || !draft.prompt.trim() || !targets.length}>发送给 {targets.length} 位 <span aria-hidden="true">↑</span></button>}</div>
+          <div className="dt-group-context">
+            <div className="dt-group-context-row">
+              <button ref={pickerToggle} type="button" className={`dt-group-recipient-toggle${recipientIssue ? ' has-issue' : ''}`} aria-expanded={pickerOpen} aria-label={`${running ? '下次' : '本次'}发送给 ${targets.length} 位：${recipientNames || '尚未选择'}${readiness.invalidTargets.length ? `，${readiness.invalidTargets.length} 位不可用` : ''}`} onClick={() => setPickerOpen(value => !value)}>
+                <strong>{running ? '下次发给' : '发给'} {targets.length} 位</strong><span>{readiness.invalidTargets.length ? `${readiness.invalidTargets.length} 位不可用` : recipientNames || '选择参会对象'}</span><i aria-hidden="true">{pickerOpen ? '⌃' : '⌄'}</i>
+              </button>
+              {draft.excerpt ? <button type="button" className="dt-group-attachment-toggle" onClick={() => setPickerOpen(true)} title={`已附选段 · ${draft.excerpt.text.length} 字符`}>已附选段</button>
+                : props.excerpt?.text && <button type="button" className="dt-group-attachment-toggle" disabled={blocked} title={props.excerpt.text.length > 4000 ? '附上选中内容的前 4,000 字符' : '附上选中内容'} onClick={() => {if (props.excerpt) changeDraft({excerpt: {terminalId: props.excerpt.terminalId, text: props.excerpt.text.slice(0,4000)}});}}>＋ 附选段</button>}
+            </div>
+            {pickerOpen && <div className="dt-group-context-options" aria-label="选择本次参会对象">
+              <div className="dt-group-target-heading"><strong>参会对象</strong><button type="button" disabled={blocked || !targets.length && !availableTargets.length} onClick={() => changeDraft({targets: allAvailableSelected || !availableTargets.length ? [] : availableTargets})}>{allAvailableSelected || !availableTargets.length ? '取消全选' : '仅选可用成员'}</button></div>
+              {recipientIssue && <p className="dt-group-action-hint" role="status">{recipientIssue}</p>}
+              <div className="dt-group-targets">{group.members.map(member => {
+                const health = readiness.byId.get(member.id)!, selected = targets.includes(member.id);
+                return <div className={`dt-group-target-row${health.available ? '' : ' is-unavailable'}`} key={member.id}>
+                  <button type="button" className="dt-group-target-choice" aria-pressed={selected} disabled={blocked || !selected && !health.available} title={health.detail} onClick={() => changeDraft({targets: selected ? targets.filter(id => id !== member.id) : [...targets,member.id]})}>
+                    <span className="dt-group-target-check" aria-hidden="true">{selected ? '✓' : '＋'}</span><AgentIcon launcher={member.mode === 'dsh-ai' ? 'deepseek' : member.launcher}/><span><strong>{member.title}</strong><small>{modeName(member.mode)}{!health.available && ` · ${health.label}`}</small></span>
+                  </button>
+                  <button type="button" className="dt-group-target-open" disabled={!health.canOpen} aria-label={`查看 ${member.title} 的来源终端${health.canOpen ? '' : '，终端已关闭'}`} title={health.canOpen ? '查看来源终端' : '终端已关闭'} onClick={() => showTerminal(member.terminalId)}>↗</button>
+                </div>;
+              })}</div>
+              {targets.filter(id => !group.members.some(member => member.id === id)).map(id => <div className="dt-group-missing" key={id}><span>原选中的成员已移除</span><button type="button" disabled={blocked} onClick={() => changeDraft({targets:targets.filter(item => item !== id)})}>取消选择</button></div>)}
+              {draft.excerpt && <div className="dt-group-excerpt"><div><span>共享选段 · {displayTitle(draft.excerpt.terminalId)}</span><button type="button" aria-label="取消共享选段" disabled={blocked} onClick={() => changeDraft({excerpt: undefined})}>×</button></div><details><summary>查看内容 · {draft.excerpt.text.length.toLocaleString()} 字符</summary><pre>{draft.excerpt.text}</pre></details></div>}
+              <button type="button" className="dt-group-picker-done" onClick={() => {setPickerOpen(false);pickerToggle.current?.focus();}}>完成选择</button>
+            </div>}
           </div>
-          <div className="dt-group-composer-note"><span>{draft.excerpt ? '共享：组内讨论与上方选段' : '共享：组内讨论；未附加终端日志'}</span><span>⌘ / Ctrl + Enter</span></div>
+          <div className="dt-group-composer"><textarea aria-label="讨论问题" placeholder={running ? '可以先写下一轮的问题…' : '想请大家一起解决什么？'} rows={2} maxLength={4000} value={draft.prompt} disabled={!!pending} onChange={event => changeDraft({prompt: event.target.value})} onKeyDown={event => {if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {event.preventDefault();send('discussion');}}}/>
+            <div className="dt-group-composer-actions"><label><span className="dt-group-sr-only">讨论轮数</span><select aria-label="讨论轮数" value={draft.rounds} disabled={blocked} onChange={event => changeDraft({rounds:Number(event.target.value) as 1|2})}><option value="1">1 轮 · 收集意见</option><option value="2">2 轮 · 相互讨论</option></select></label>{running ? <button type="button" className="dt-group-stop" disabled={blocked} onClick={() => {void perform({kind:'stop',input:{groupId:group.id}});}}>■ 停止讨论</button> : <button type="submit" className="dt-group-primary" disabled={blocked || !draft.prompt.trim() || !readiness.canSend} title={recipientIssue || '发送给当前选择的成员'}>发送给 {targets.length} 位 <span aria-hidden="true">↑</span></button>}</div>
+          </div>
+          <div className="dt-group-composer-note"><span>{draft.excerpt ? '共享：组内讨论与已附选段' : '仅共享组内讨论'}</span><span>⌘ / Ctrl + Enter</span></div>
         </form>
-        <div className="dt-group-archive">{archiveConfirmation === group.id ? <><span>归档后会从列表隐藏，终端保持打开。</span><button type="button" disabled={blocked || running} onClick={() => {void perform({kind:'archive',input:{groupId:group.id}});}}>确认归档</button><button type="button" disabled={blocked} onClick={() => setArchiveConfirmation(undefined)}>取消</button></> : <button type="button" disabled={blocked || running} onClick={() => setArchiveConfirmation(group.id)}>归档讨论组</button>}</div>
       </footer>
     </> : <div className="dt-group-overview">
       {!state.loaded || state.selectedId && state.reading ? <p className="dt-group-loading" role="status">正在读取讨论组…</p> : state.groups.length ? <><div className="dt-group-section-heading"><h3>你的讨论组</h3><span>{state.groups.length} 个</span></div><div className="dt-group-list">{state.groups.map(item => <button type="button" key={item.id} onClick={() => state.select(item.id)}><div><strong>{item.title}</strong><span className={`dt-group-state is-${item.status}`}><i/>{terminalGroupStatus(item)}</span></div><p>{item.members.map(member => member.title).join(' · ')}</p><small>{item.members.length} 位成员 <span>查看讨论 ↗</span></small></button>)}</div></>

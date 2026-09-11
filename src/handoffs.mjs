@@ -422,11 +422,18 @@ export class TerminalHandoffs {
       task.status = 'running'
       // Keep the task actionable while the provider cannot prove tree exit.
       // A "failed" terminal state would hide the UI's stop/retry action.
-      try { await this.drain(job); task.status = settledStatus }
+      try { await this.drain(job) }
       catch { task.error = [job.settledError?.slice(0, 800), '后台进程尚未完成清理，请再次停止此任务'].filter(Boolean).join('\n') }
       if (job.clean) task.executionFinishedAt = Date.now()
       task.updatedAt = Date.now()
-      try { await this.persist(owner, state, task) } catch {}
+      // Keep the live view running through the completion checkpoint. Publishing
+      // succeeded before that await lets a caller see a finished result while
+      // accept still rejects its active job. Unproven cleanup retains the lease.
+      try { await this.persist(owner, state, job.clean ? { ...task, status: settledStatus } : task) } catch {}
+      if (job.clean) {
+        this.release(state, job)
+        task.status = settledStatus
+      }
       if (job.clean && !state.disposed && task.returnToConversation && ['succeeded', 'failed'].includes(task.status)) {
         try { await this.returnResult(owner, { taskId: task.id }) } catch {}
       }

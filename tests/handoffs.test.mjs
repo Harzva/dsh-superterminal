@@ -233,6 +233,91 @@ test('explicit acceptance is durable and idempotent without changing execution c
   await f.handoffs.close()
 })
 
+test('a rework result becomes succeeded only after its completion save and execution release', async () => {
+  const f = fixture(), parent = await completed(f)
+  const task = await f.handoffs.rework(f.owner, { taskId: parent.id, requestId: 'rework-completion-race', issues: 'Verify the missing case', returnToConversation: false })
+  await tick()
+  const job = f.handoffs.states.get(f.owner).active.get(task.id)
+  const completionSave = Promise.withResolvers(), saving = Promise.withResolvers()
+  const put = f.handoffs.journal.put
+  let chain = Promise.resolve()
+  f.handoffs.journal.put = (owner, row) => {
+    const snapshot = structuredClone(row)
+    const write = chain.then(async () => {
+      if (snapshot.id === task.id && snapshot.status === 'succeeded' && snapshot.acceptance === 'pending') {
+        saving.resolve(); await completionSave.promise
+      }
+      return put(owner, snapshot)
+    })
+    chain = write.catch(() => {})
+    return write
+  }
+  f.handles.at(-1).finish(piResult('Corrected result with verification'))
+  await saving.promise
+  try {
+    const pending = (await f.handoffs.list(f.owner)).tasks.find(row => row.id === task.id)
+    assert.equal(pending.status, 'running', 'The public result must not report completion while its durable write is pending')
+    assert.equal(job.clean, true); assert.equal(f.handoffs.hasActive(f.owner), true)
+    assert.equal((await f.handoffs.accept(f.owner, { taskId: task.id, requestId: 'premature-review' })).rejected, true)
+  } finally { completionSave.resolve() }
+  let result
+  for (let attempt = 0; attempt < 20; attempt++) {
+    result = (await f.handoffs.list(f.owner)).tasks.find(row => row.id === task.id)
+    if (result.status === 'succeeded') break
+    await tick()
+  }
+  assert.equal(result.status, 'succeeded'); assert.equal(result.savePending, undefined)
+  assert.equal(f.handoffs.hasActive(f.owner), false); assert.equal(f.handoffs.activeCount, 0)
+  const input = { taskId: task.id, requestId: 'review-completed-rework', notes: 'Checked the missing case' }
+  const accepted = await f.handoffs.accept(f.owner, input)
+  assert.equal(accepted.acceptance, 'accepted')
+  await job.done
+  assert.equal((await f.handoffs.accept(f.owner, input)).reviewedAt, accepted.reviewedAt)
+  assert.equal(f.records.get(task.id).acceptance, 'accepted'); assert.equal(f.handoffs.activeCount, 0)
+  assert.equal(f.handles.length, 2); await f.handoffs.close()
+})
+
+test('a failed completion save stays explicitly unsaved and cannot produce a durable acceptance', async () => {
+  let offline = true
+  const f = fixture({ failSave: row => offline && row.status === 'succeeded' })
+  const task = await f.start(); await tick(); f.handles[0].finish(piResult('Actual completed result'))
+  const result = await settle(f, task)
+  assert.equal(result.status, 'succeeded'); assert.equal(result.savePending, true)
+  assert.equal(f.handoffs.hasActive(f.owner), false); assert.equal(f.handoffs.activeCount, 0)
+  const input = { taskId: task.id, requestId: 'accept-after-durability' }
+  await assert.rejects(f.handoffs.accept(f.owner, input), /storage unavailable/)
+  assert.equal(f.handoffs.states.get(f.owner).reviewCandidates.has(task.id), false)
+  assert.equal(f.records.get(task.id).acceptance, 'pending')
+  offline = false
+  const accepted = await f.handoffs.accept(f.owner, input)
+  assert.equal(accepted.acceptance, 'accepted'); assert.equal(accepted.savePending, undefined)
+  assert.equal(f.records.get(task.id).status, 'succeeded'); assert.equal(f.records.get(task.id).acceptance, 'accepted')
+  assert.equal(f.handles.length, 1); await f.handoffs.close()
+})
+
+test('owner disposal still waits for a clean job whose completion checkpoint is pending', async () => {
+  const f = fixture(), task = await f.start({ returnToConversation: true }); await tick()
+  const completionSave = Promise.withResolvers(), saving = Promise.withResolvers()
+  const put = f.handoffs.journal.put
+  f.handoffs.journal.put = async (owner, row) => {
+    if (row.id === task.id && row.status === 'succeeded') { saving.resolve(); await completionSave.promise }
+    return put(owner, row)
+  }
+  f.handles[0].finish(piResult('Result before disposal'))
+  await saving.promise
+  let disposed = false
+  const disposing = f.handoffs.disposeOwner(f.owner).then(() => { disposed = true })
+  try {
+    await tick()
+    assert.equal(disposed, false); assert.equal(f.handoffs.hasActive(f.owner), true)
+    assert.equal(f.deliveries.length, 0)
+  } finally { completionSave.resolve() }
+  await disposing
+  assert.equal(f.handoffs.hasActive(f.owner), false); assert.equal(f.handoffs.activeCount, 0)
+  assert.equal(f.deliveries.length, 0); assert.equal(f.handles[0].terminated, true)
+  await f.handoffs.close()
+})
+
 test('failed acceptance persistence remains pending in the UI and reuses its original review timestamp', async () => {
   let fail = false
   const f = fixture({failSave: task => fail && task.acceptance === 'accepted'})
@@ -505,6 +590,8 @@ test('unproven process cleanup retains the running action and blocks capacity un
   const result = await settle(f, task)
   assert.equal(result.status, 'running'); assert.match(result.error, /清理/)
   assert.equal(f.handoffs.hasActive(f.owner), true)
+  assert.equal((await f.handoffs.accept(f.owner, { taskId: task.id, requestId: 'accept-before-cleanup' })).rejected, true)
+  assert.equal(f.records.get(task.id).acceptance, 'pending')
   f.handles[0].clean = true
   const closed = await f.handoffs.cancel(f.owner, { taskId: task.id })
   assert.equal(closed.status, 'cancelled'); assert.equal(f.handoffs.hasActive(f.owner), false)

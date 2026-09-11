@@ -58,11 +58,30 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const [focused, setFocused] = useState<string | null>(null);
   const [naturalViews, setNaturalViews] = useState<Record<string, boolean>>({});
   const revealSlotRef = useRef<number | null>(null);
+  const [revealRequest, setRevealRequest] = useState(0);
   const [zoomed, setZoomed] = useState<string | null>(null);
   const [autoClaimIds, setAutoClaimIds] = useState<Set<string>>(() => new Set());
   const [opening, setOpening] = useState<Record<number, 'pending' | 'uncertain'>>({});
   const [cwd, setCwd] = useState('');
   const [auxiliary, setAuxiliary] = useState<'agents' | 'assistant' | 'supervisor' | 'handoff' | 'groups' | null>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const [toolsOpened, setToolsOpened] = useState(false);
+  const closeAuxiliary = () => {
+    const trigger = workspaceRef.current?.querySelector<HTMLButtonElement>(`[data-auxiliary="${auxiliary}"]`)
+      ?? toolsRef.current?.querySelector<HTMLButtonElement>('.dt-tools-toggle');
+    setAuxiliary(null);
+    requestAnimationFrame(() => trigger?.focus());
+  };
+  useEffect(() => { setToolsOpened(false); }, [auxiliary]);
+  useEffect(() => {
+    if (!toolsOpened) return;
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !toolsRef.current?.contains(event.target)) setToolsOpened(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [toolsOpened]);
   const showManager = auxiliary === 'agents', showSmart = auxiliary === 'assistant', showSupervisor = auxiliary === 'supervisor', showHandoff = auxiliary === 'handoff';
   const [assistantSeed, setAssistantSeed] = useState<AssistantSeed>();
   const [handoffSeed, setHandoffSeed] = useState<HandoffSeed>();
@@ -195,6 +214,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       setAutoClaimIds(previous => new Set([...previous, terminal.id]));
       setFocused(terminal.id);
       setSelectedSlot(index);
+      revealSlotRef.current = index;
+      setRevealRequest(value => value + 1);
       setOpening(previous => {
         const next = { ...previous };
         delete next[index];
@@ -290,6 +311,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const geometryRef = useRef(geometry);
   geometryRef.current = geometry;
   useEffect(() => {
+    if (auxiliary) { revealSlotRef.current = null; return; }
     const index = revealSlotRef.current;
     const viewport = viewportRef.current;
     const rect = index == null ? undefined : geometry.panes[index];
@@ -299,10 +321,13 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       const left = rect.x < viewport.scrollLeft ? rect.x : rect.x + rect.width > viewport.scrollLeft + viewport.clientWidth ? rect.x + rect.width - viewport.clientWidth : viewport.scrollLeft;
       const top = rect.y < viewport.scrollTop ? rect.y : rect.y + rect.height > viewport.scrollTop + viewport.clientHeight ? rect.y + rect.height - viewport.clientHeight : viewport.scrollTop;
       viewport.scrollTo({left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto'});
+      const pane = canvasRef.current?.querySelector<HTMLElement>(`[data-slot-index="${index}"]`);
+      const input = pane?.querySelector<HTMLTextAreaElement>('.dt-pane-natural[aria-hidden="false"] textarea:not(:disabled), .dt-pane-native[aria-hidden="false"] .xterm-helper-textarea');
+      input?.focus({preventScroll: true});
       revealSlotRef.current = null;
     });
     return () => cancelAnimationFrame(frame);
-  }, [active, geometry, selectedSlot]);
+  }, [active, geometry, selectedSlot, revealRequest, auxiliary]);
 
   const selectPreset = (next: LayoutPreset) => {
     const count = next === 'six' ? 6 : next === 'twelve' ? 12 : next === 'main' ? 3 : 2;
@@ -334,7 +359,10 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
 
   const showSlot = (index: number) => {
+    setAuxiliary(null);
+    setToolsOpened(false);
     revealSlotRef.current = index;
+    setRevealRequest(value => value + 1);
     if (!visibleSlots.includes(index)) setLayout(previous => previous ? splitSlot(previous, visibleSlots[0], index, 'x') : {slot:index});
     setPreset('custom'); setSelectedSlot(index); setFocused(slots[index]?.id ?? null); setZoomed(null);
   };
@@ -420,7 +448,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
 
   return (
-    <div className={`dsh-terminal-workspace${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown}>
+    <div ref={workspaceRef} className={`dsh-terminal-workspace${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown}>
       <style>{workspaceCss}</style>
       <style>{handoffCss}</style>
       <style>{runCss}</style>
@@ -430,12 +458,23 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         <div className="dt-brand"><span className="dt-brand-mark">&gt;_</span><strong>DSH SuperTerminal</strong><span className="dt-brand-subtitle">WORKSPACE</span></div>
         <span className="dt-toolbar-spacer" />
         <button className="dt-toolbar-button dt-new-terminal" onClick={newTerminal}>{compact ? '＋ 终端' : '＋ 新建终端'}</button>
-        <button className="dt-toolbar-button" aria-pressed={showManager} onClick={() => setAuxiliary(value => value === 'agents' ? null : 'agents')}>{compact ? 'Agents' : '智能体管理'}</button>
-        <button className="dt-toolbar-button" aria-pressed={showSmart} onClick={() => setAuxiliary(value => value === 'assistant' ? null : 'assistant')}>{compact ? '解释' : '解释与建议'}</button>
-        <button className="dt-toolbar-button dt-handoff-entry" aria-expanded={showHandoff} onClick={() => openHandoff()}>{compact ? '↗ 协作' : '↗ 交给 Agent'}</button>
-        <button className="dt-toolbar-button dt-groups-entry" aria-expanded={showGroups} onClick={() => setAuxiliary(value => value === 'groups' ? null : 'groups')}>{compact ? '讨论组' : '◎ 终端讨论组'}</button>
-        <button className="dt-toolbar-button" aria-expanded={showSupervisor} onClick={() => setAuxiliary(value => value === 'supervisor' ? null : 'supervisor')}>{compact ? '监督' : 'Supervisor'}</button>
+        <button className="dt-toolbar-button" data-auxiliary="assistant" aria-pressed={showSmart} onClick={() => setAuxiliary(value => value === 'assistant' ? null : 'assistant')}>{compact ? '解释' : '解释与建议'}</button>
+        <button className="dt-toolbar-button dt-handoff-entry" data-auxiliary="handoff" aria-expanded={showHandoff} onClick={() => showHandoff ? closeAuxiliary() : openHandoff()}>{compact ? '协作' : '交给 Agent'}</button>
+        <button className="dt-toolbar-button dt-groups-entry" data-auxiliary="groups" aria-expanded={showGroups} onClick={() => setAuxiliary(value => value === 'groups' ? null : 'groups')}>{compact ? '讨论组' : '终端讨论组'}</button>
         <span className="dt-running-count"><i />{running} 运行 · {terminals.length} 终端</span>
+        <div className="dt-toolbar-tools" ref={toolsRef} onBlur={event => {
+          if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setToolsOpened(false);
+        }} onKeyDown={event => {
+          if (event.key !== 'Escape' || !toolsOpened) return;
+          event.preventDefault(); event.stopPropagation(); setToolsOpened(false);
+          toolsRef.current?.querySelector<HTMLButtonElement>('.dt-tools-toggle')?.focus();
+        }}>
+        <button className="dt-toolbar-button dt-tools-toggle" aria-label="更多终端操作" aria-expanded={toolsOpened}
+          onClick={() => setToolsOpened(value => !value)}>更多 <span aria-hidden="true">⌄</span></button>
+        {toolsOpened && <div className="dt-tools-popover" role="group" aria-label="更多终端操作">
+        <button className="dt-toolbar-button" aria-pressed={showManager} onClick={() => {setToolsOpened(false);setAuxiliary(value => value === 'agents' ? null : 'agents');}}>智能体管理</button>
+        <button className="dt-toolbar-button" aria-pressed={showSupervisor} onClick={() => {setToolsOpened(false);setAuxiliary(value => value === 'supervisor' ? null : 'supervisor');}}>DSH Supervisor</button>
+        {!compact && <div className="dt-tools-layout">
         <label className="dt-layout-select">布局 <select aria-label="布局预设" value={preset}
           onChange={event => selectPreset(event.target.value as LayoutPreset)}>
           <option value="six">六宫格 · 2 × 3</option><option value="twelve">十二宫格 · 3 × 4</option>
@@ -447,7 +486,10 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           <button className="dt-toolbar-button" onClick={() => splitPane(selectedSlot, 'y')} title="在所选窗格下方增加一个空窗格">上下分割</button>
         </div>
         {zoomed && <button className="dt-toolbar-button" onClick={() => setZoomed(null)}>还原布局</button>}
-        <button className="dt-toolbar-button" onClick={() => { void refresh(true); }} disabled={loading}>刷新列表</button>
+        </div>}
+        <button className="dt-toolbar-button dt-refresh-list" onClick={() => {setToolsOpened(false);void refresh(true);}} disabled={loading}>刷新终端列表</button>
+        </div>}
+        </div>
       </header>
       <div className="dt-task-identity" aria-label="当前任务身份">
         <div><span>{contextLabel}</span><button disabled={!onShowConversation} onClick={onShowConversation} title={conversationTitle}>{conversationTitle}</button></div>
@@ -479,25 +521,26 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       <HandoffSummary tasks={handoffs.tasks} onOpen={() => openHandoff('records')}/>
       <TerminalGroupPanel bridge={bridge} state={groups} opened={showGroups} seed={groupSeed} excerpt={excerpt}
         terminals={terminals.map(terminal => {const index = slots.findIndex(item => item?.id === terminal.id); return {...terminal, title: records[index]?.title, number: index + 1};})}
-        onClose={() => setAuxiliary(null)} onHandoff={groupHandoff}
+        onClose={closeAuxiliary} onHandoff={groupHandoff}
         onShowTerminal={id => {const index = slots.findIndex(item => item?.id === id); if(index < 0) return false; showSlot(index); return true;}}/>
       <HandoffPanel bridge={bridge} sessionId={sessionId} conversationTitle={conversationTitle}
         source={handoffSource} availableTerminalIds={terminals.map(item => item.id)}
         excerpt={excerpt} tasks={handoffs.tasks} targets={handoffs.targets} error={handoffs.error} loaded={handoffs.loaded}
-        opened={showHandoff} openAt={handoffOpenAt} seed={handoffSeed} onClose={() => setAuxiliary(null)} refresh={handoffs.refresh}
+        opened={showHandoff} openAt={handoffOpenAt} seed={handoffSeed} onClose={closeAuxiliary} refresh={handoffs.refresh}
         onShowTerminal={id => { const index = slots.findIndex(item => item?.id === id); if (index < 0) return false; showSlot(index); return true; }}
         onShowConversation={onShowConversation}/>
-      {showManager && <AgentManager bridge={bridge} destination={(!slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item,i)=>!item && !opening[i])) + 1} onClose={() => setAuxiliary(null)} onLaunch={id => {
+      {showManager && <AgentManager bridge={bridge} destination={(!slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item,i)=>!item && !opening[i])) + 1} onClose={closeAuxiliary} onLaunch={id => {
         const index = !slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item, i) => !item && !opening[i]);
         if (index < 0) { setActionError('已打开 12 个终端，请先结束一个任务。'); return; }
         showSlot(index); setAuxiliary(null); void open(index, id);
       }} />}
-      {showSmart && <SmartAssistant bridge={bridge} sessionId={sessionId} conversationTitle={conversationTitle} contextLabel={contextLabel} connected={!listError} seed={assistantSeed} onClose={() => setAuxiliary(null)}
+      {showSmart && <SmartAssistant bridge={bridge} sessionId={sessionId} conversationTitle={conversationTitle} contextLabel={contextLabel} connected={!listError} seed={assistantSeed} onClose={closeAuxiliary}
         target={slots[selectedSlot] ? {id:slots[selectedSlot]!.id,launcher:slots[selectedSlot]!.launcher,title:records[selectedSlot]?.title,number:selectedSlot+1} : undefined}
         excerpt={excerpt} onClearExcerpt={()=>setExcerpt(undefined)} onDraft={(targetId,text)=>{
           const index=slots.findIndex(item=>item?.id===targetId);
           if(index<0){setActionError('目标终端已关闭，请重新选择。');return;}
           const draft = {id:crypto.randomUUID(),text}; assistantMemory(sessionId, targetId).update({terminalDraft:draft});
+          setNaturalViews(previous => ({...previous, [targetId]: false}));
           setDrafts(previous=>({...previous,[targetId]:draft}));showSlot(index);
         }} />}
       {showSupervisor && <SupervisorPanel sessionId={sessionId} tasks={handoffs.tasks} groups={groups.groups}
@@ -514,7 +557,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
             display: visible ? undefined : 'none',
             left: rect?.x ?? 0, top: rect?.y ?? 0, width: rect?.width ?? 0, height: rect?.height ?? 0,
           };
-          return <div className="dt-cell" key={terminal?.id ?? `empty-${index}`} style={style} aria-hidden={!visible}>
+          return <div className="dt-cell" data-slot-index={index} key={terminal?.id ?? `empty-${index}`} style={style} aria-hidden={!visible}>
             {terminal ? <PaneBoundary><TerminalPane
               terminal={terminal} bridge={bridge} viewerId={viewerId} number={index + 1} connected={!listError}
               onAddToGroup={() => addToGroup(terminal.id, groups.selectedId)}

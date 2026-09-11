@@ -22,17 +22,17 @@
 
 ## 安装
 
-当前版本 **0.1.0-alpha.10**，改进 **Terminal Group 的连续讨论与长回复读取**。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
+当前版本 **0.1.0-alpha.11**，打磨 **侧栏阅读空间、成员状态与终端操作衔接**。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.10/harzva-dsh-terminal-0.1.0-alpha.10.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.11/harzva-dsh-terminal-0.1.0-alpha.11.tgz
 ```
 
 首次运行：
 
 1. 重启所选 DSH 配置（上述命令为 `web`），在输入栏点击 **终端**，或输入 **/terminal**。
 2. 在来源对话中选择可用的 DSH 模型，第一次发送 AI 任务时会沿用它。任务按来源工作区权限执行；本插件不附带模型或额度。
-3. 点击 **＋ 终端**，写下第一个任务；通过 **Agents** 打开本机 CLI。
+3. 点击 **＋ 终端**，写下第一个任务；通过 **更多 → 智能体管理** 打开本机 CLI。
 
 目前仍为 Alpha，暂不支持 Windows、远程终端、其他 DSH 版本或 Harvis 接管。DSH Supervisor 的终端状态适配尚未包含在公开 Supervisor 0.2.4 中。
 
@@ -81,7 +81,7 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 
 ## 熟悉的智能体，在同一个工作台
 
-通过 **Agents** 打开本机 Shell、Codex、Claude Code、Kimi Code、Pi 等工具，保留各自的原生界面。目录显示可识别的版本与使用状态。
+通过 **更多 → 智能体管理** 打开本机 Shell、Codex、Claude Code、Kimi Code、Pi 等工具，保留各自的原生界面。目录显示可识别的版本与使用状态。
 
 ![本机智能体目录与使用状态](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/agents.jpg)
 
