@@ -1,3 +1,4 @@
+import { TERMINAL_THEMES, type TerminalThemeName } from './terminal-theme.mjs';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { AgentIcon } from './agent-icon';
@@ -7,6 +8,7 @@ import naturalCss from './terminal-run-panel.css';
 import type { TerminalBridge, TerminalSummary } from './types';
 
 type Props = {
+  theme: TerminalThemeName;
   terminal: TerminalSummary;
   bridge: TerminalBridge;
   viewerId: string;
@@ -331,6 +333,11 @@ export function TerminalPane(props: Props) {
   }, [updateStdin]);
 
   useEffect(() => {
+    const term = terminalRef.current;
+    if (term) term.options.theme = TERMINAL_THEMES[props.theme];
+  }, [props.theme]);
+
+  useEffect(() => {
     mountedRef.current = true;
     let canceled = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -347,13 +354,8 @@ export function TerminalPane(props: Props) {
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       lineHeight: 1.18,
       scrollback: 5000,
-      theme: {
-        background: '#10151b', foreground: '#d6dde5', cursor: '#8dddd0', selectionBackground: '#3a647866',
-        black: '#25303b', red: '#f08b91', green: '#9cd7ac', yellow: '#e7c78b',
-        blue: '#89b9ed', magenta: '#c2a2e8', cyan: '#7bd1cf', white: '#d6dde5',
-        brightBlack: '#718093', brightRed: '#ffa1a7', brightGreen: '#b4ebc2', brightYellow: '#f4d8a4',
-        brightBlue: '#a3cdff', brightMagenta: '#d9bcfb', brightCyan: '#a0e7e5', brightWhite: '#f4f7fb',
-      },
+      minimumContrastRatio: 4.5,
+      theme: TERMINAL_THEMES[propsRef.current.theme],
     });
     const fit = new FitAddon();
     term.loadAddon(fit);

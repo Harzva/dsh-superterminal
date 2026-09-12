@@ -2,7 +2,8 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { TYPERT_REMOTE, METHODS } from './remote.mjs'
-import { TerminalWorkspace } from './client/index.ts'
+import { TerminalWorkspace, useTerminalTheme } from './client/index.ts'
+import themeCss from './client/terminal-theme.css'
 
 export const name = 'dsh-terminal-client'
 export const inject = ['slots', 'remote', 'sessions']
@@ -86,6 +87,7 @@ function DockSeat({ container, onUnavailable }) {
   return React.createElement('div', { ref:seat, style:{height:'100%',width:'100%',minWidth:0,overflow:'hidden'} })
 }
 function TerminalOverlay(props) {
+  const appearance = useTerminalTheme()
   const state = props.useStore(value => value)
   const sessions = props.useSessions(value => value)
   const current = sessions.current
@@ -162,22 +164,22 @@ function TerminalOverlay(props) {
   }
   const title = mode === 'independent' ? '独立工作台' : (sessions.byId[boundId]?.displayTitle || '当前对话')
   const ids = [...new Set([...visited, ...(activeId ? [activeId] : [])])]
-  const panel = React.createElement('section', { role: 'region', 'aria-label': 'Side Terminal',
+  const panel = React.createElement('section', { role: 'region', 'aria-label': 'Side Terminal', className:'dt-themed dt-side-terminal', 'data-dt-theme':appearance.resolved,
     style: { display: state.opened ? 'flex' : 'none', height:'100%', width:'100%',
-      pointerEvents:'auto', flexDirection:'column', overflow:'hidden', background:'#0d1015',color:'#d9e1ea' } },
-    React.createElement('header', {style:{display:'grid',gridTemplateColumns:'1fr auto auto',alignItems:'center',gap:8,padding:'12px 16px',borderBottom:'1px solid #ffffff0a',fontSize:12}},
-      React.createElement('strong',{style:{color:'#b6e1d0',marginRight:'auto'}},'Side Terminal'),
-      React.createElement('select', {'aria-label':'终端关联方式',value:mode,onChange:event=>chooseMode(event.target.value),disabled:busy,
-        style:{background:'#172028',color:'#c7d8d0',border:'1px solid #34463e',padding:'6px 8px',borderRadius:6}},
+      pointerEvents:'auto', flexDirection:'column', overflow:'hidden' } },
+    React.createElement('style',null,themeCss),
+    React.createElement('header', {className:`dt-side-header${expanded ? ' is-expanded' : ''}`},
+      React.createElement('strong',null,'Side Terminal'),
+      React.createElement('select', {'aria-label':'终端关联方式',value:mode,onChange:event=>chooseMode(event.target.value),disabled:busy},
         React.createElement('option',{value:'bound'},'绑定当前对话'),React.createElement('option',{value:'independent'},'独立工作台')),
-      React.createElement('button',{onClick:()=>setExpanded(value=>!value),style:{background:'transparent',border:0,color:'#c5d0d8',cursor:'pointer',gridColumn:'2 / 4',gridRow:2,justifySelf:'end'}},expanded?'回到侧边':'展开工作台'),
-      React.createElement('button',{onClick:()=>{props.actions.hide();props.openDetails()},title:'返回原有的命令输出和工具详情',style:{background:'transparent',border:0,color:'#91a39b',cursor:'pointer',gridColumn:1,gridRow:2,justifySelf:'start'}},'工具详情'),
-      React.createElement('button',{'aria-label':'收起 Side Terminal',title:'收起后任务继续运行',onClick:()=>{props.actions.hide();props.closeDetails()},style:{background:'transparent',border:0,color:'#c5d0d8',cursor:'pointer',fontSize:18,gridColumn:3,gridRow:1}},'×')),
-    React.createElement('div',{style:{padding:'8px 16px',fontSize:10,color:'#82978e',borderBottom:'1px solid #ffffff08',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},title},
+      React.createElement('button',{onClick:()=>setExpanded(value=>!value),style:{gridColumn:'2 / 4',gridRow:2,justifySelf:'end'}},expanded?'回到侧边':'展开工作台'),
+      React.createElement('button',{onClick:()=>{props.actions.hide();props.openDetails()},title:'返回原有的命令输出和工具详情',style:{gridColumn:1,gridRow:2,justifySelf:'start'}},'工具详情'),
+      React.createElement('button',{'aria-label':'收起 Side Terminal',title:'收起后任务继续运行',onClick:()=>{props.actions.hide();props.closeDetails()},className:'dt-side-close',style:{gridColumn:3,gridRow:1}},'×')),
+    React.createElement('div',{className:`dt-side-context${expanded ? ' is-expanded' : ''}`,title},
       (mode==='bound'?'关联对话 · ':'不随对话切换 · ')+title),
-    error && React.createElement('div',{role:'alert',style:{padding:12,color:'#e5c18c',fontSize:12}},error,
+    error && React.createElement('div',{role:'alert',className:'dt-side-alert'},error,
       React.createElement('button',{onClick:connectIndependent,disabled:busy},'重新连接')),
-    !activeId && React.createElement('div',{style:{padding:28,color:'#8e9eaa',fontSize:12}},busy?'正在准备独立工作台…':'选择一个对话后，即可在旁边开始工作。'),
+    !activeId && React.createElement('div',{className:'dt-side-empty'},busy?'正在准备独立工作台…':'选择一个对话后，即可在旁边开始工作。'),
     React.createElement('div',{style:{flex:1,minHeight:0}},ids.map(id=>React.createElement(ScopeTerminal,{key:id,sessionId:id,invokeTerminal:props.invokeTerminal,active:state.opened && id===activeId,compact:!expanded,contextLabel:id===independent?'独立工作台':'关联对话',
       conversationTitle:sessions.byId[id]?.displayTitle || (id===independent?'独立工作台':'关联对话'),
       onShowConversation:props.isAvailable(id) ? () => {
@@ -185,8 +187,8 @@ function TerminalOverlay(props) {
       } : undefined,
       recoverSession:id===independent?recoverSession:undefined}))))
   return React.createElement(React.Fragment, null,
-    React.createElement('div', {ref:floatingSeat,style:{display:state.opened && !docked?'block':'none',position:'fixed',top:8,right:8,bottom:8,
-      width:expanded?'calc(100vw - 16px)':'min(720px, calc(100vw - 24px))',zIndex:100,pointerEvents:'auto',borderRadius:12,overflow:'hidden',border:'1px solid #34423c',boxShadow:'-16px 0 48px #0005'}}),
+    React.createElement('div', {ref:floatingSeat,className:'dt-themed dt-side-floating','data-dt-theme':appearance.resolved,style:{display:state.opened && !docked?'block':'none',position:'fixed',top:8,right:8,bottom:8,
+      width:expanded?'calc(100vw - 16px)':'min(720px, calc(100vw - 24px))',zIndex:100,pointerEvents:'auto',borderRadius:12,overflow:'hidden'}}),
     createPortal(panel, container))
 }
 

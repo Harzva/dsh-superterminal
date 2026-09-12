@@ -1,3 +1,6 @@
+import themeCss from './terminal-theme.css';
+import { useTerminalTheme } from './use-terminal-theme';
+import { terminalThemeStore, type TerminalThemePreference } from './terminal-theme.mjs';
 import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadWorkspaceMemory, saveWorkspaceMemory } from './workspace-memory.mjs';
 import { AgentManager, SmartAssistant } from './agent-manager';
@@ -38,6 +41,7 @@ class PaneBoundary extends Component<{ children: React.ReactNode }, { failed: bo
 }
 
 function WorkspaceSession({ bridge, sessionId, active = true, compact = false, contextLabel = '关联对话', conversationTitle = '关联对话', onShowConversation }: TerminalWorkspaceProps) {
+  const appearance = useTerminalTheme();
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
   const [memory] = useState(() => loadWorkspaceMemory(sessionId));
@@ -198,7 +202,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     setExcerpt(id && text ? {terminalId: id, text} : undefined);
   }, [sessionId, selectedSlot, slots[selectedSlot]?.id]);
 
-  const open = async (index: number, launcher: string, remote?: RemoteDestination) => {
+  const open = async (index: number, launcher: string, remote?: RemoteDestination, showNatural = false) => {
     if (opening[index] || slots[index]) return;
     setOpening(previous => ({ ...previous, [index]: 'pending' }));
     setActionError('');
@@ -206,6 +210,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     try {
       const terminal = await bridgeRef.current.open({ launcher, rows: 24, cols: 80, requestId: crypto.randomUUID(), ...(remote ? {remote} : {}) });
       if (!aliveRef.current) return;
+      setNaturalViews(previous => ({...previous, [terminal.id]: !remote && showNatural}));
       mutationRef.current += 1;
       setSlots(previous => {
         if (previous.some(item => item?.id === terminal.id)) return previous;
@@ -381,7 +386,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     const free = slots.findIndex((item,i) => !item && !opening[i] && !records[i]);
     const fallback = free >= 0 ? free : slots.findIndex((item,i) => !item && !opening[i]);
     if (fallback < 0) {setActionError('已打开 12 个终端，请先结束一个任务。'); return;}
-    showSlot(fallback); setAuxiliary(null); void open(fallback, 'shell');
+    showSlot(fallback); setAuxiliary(null); void open(fallback, 'shell', undefined, true);
   };
   const hideTerminal = (index:number) => {
     setLayout(previous => removeSlot(previous,index)); setPreset('custom'); setZoomed(null);
@@ -459,7 +464,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
 
   return (
-    <div ref={workspaceRef} className={`dsh-terminal-workspace${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown}>
+    <div ref={workspaceRef} data-dt-theme={appearance.resolved} className={`dt-themed dsh-terminal-workspace${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown}>
+      <style>{themeCss}</style>
       <style>{workspaceCss}</style>
       <style>{handoffCss}</style>
       <style>{runCss}</style>
@@ -485,6 +491,14 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         {toolsOpened && <div className="dt-tools-popover" role="group" aria-label="更多终端操作">
         <button className="dt-toolbar-button" aria-pressed={showManager} onClick={() => {setToolsOpened(false);setAuxiliary(value => value === 'agents' ? null : 'agents');}}>智能体管理</button>
         <button className="dt-toolbar-button" aria-pressed={showSupervisor} onClick={() => {setToolsOpened(false);setAuxiliary(value => value === 'supervisor' ? null : 'supervisor');}}>DSH Supervisor</button>
+        <div className="dt-appearance">
+          <div className="dt-appearance-label"><span>外观</span>{appearance.preference === 'system' && <small>当前{appearance.resolved === 'light' ? '浅色' : '深色'}</small>}</div>
+          <div className="dt-appearance-options" role="group" aria-label="终端外观">
+            {([['light', '浅色'], ['dark', '深色'], ['system', '跟随系统']] as const).map(([value, label]) =>
+              <button key={value} type="button" aria-pressed={appearance.preference === value}
+                onClick={() => terminalThemeStore.setPreference(value as TerminalThemePreference)}>{label}</button>)}
+          </div>
+        </div>
         {!compact && <div className="dt-tools-layout">
         <label className="dt-layout-select">布局 <select aria-label="布局预设" value={preset}
           onChange={event => selectPreset(event.target.value as LayoutPreset)}>
@@ -570,7 +584,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
             left: rect?.x ?? 0, top: rect?.y ?? 0, width: rect?.width ?? 0, height: rect?.height ?? 0,
           };
           return <div className="dt-cell" data-slot-index={index} key={terminal?.id ?? `empty-${index}`} style={style} aria-hidden={!visible}>
-            {terminal ? <PaneBoundary><TerminalPane
+            {terminal ? <PaneBoundary><TerminalPane theme={appearance.resolved}
               terminal={terminal} bridge={bridge} viewerId={viewerId} number={index + 1} connected={!listError}
               onAddToGroup={isRemote ? undefined : () => addToGroup(terminal.id, groups.selectedId)}
               onGroupDragStart={isRemote ? undefined : event => {event.dataTransfer.effectAllowed = 'copy';event.dataTransfer.setData('application/x-dsh-terminal', JSON.stringify({sessionId,terminalId:terminal.id}));}}
@@ -605,7 +619,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
               {!(loaded && records[index]) && <><div className="dt-launch-location" role="group" aria-label={`终端 ${index + 1} 执行位置`}>{([['local','本机'],['ssh','SSH 远程']] as const).map(([location,label]) => <button key={location} type="button" aria-pressed={(launchLocations[index] ?? 'local') === location} disabled={Boolean(opening[index])} onClick={() => setLaunchLocations(previous=>({...previous,[index]:location}))}>{label}</button>)}</div>{launchLocations[index] === 'ssh' ? <RemoteLauncher bridge={bridge} initial={remoteSeeds[index]} launchState={opening[index]} onDestinationChange={destination=>setRemoteSeeds(previous=>({...previous,[index]:destination}))} disabled={Boolean(opening[index]) || loading || Boolean(listError)} onLaunch={(launcher,remote)=>{void open(index,launcher,remote);}}/> : <><span className="dt-empty-prompt">&gt;_</span>
               <strong>{opening[index] === 'pending' ? '正在启动…' : opening[index] === 'uncertain' ? '等待确认启动结果' : '在这里，开始工作。'}</strong>
               <span className="dt-empty-description">用自然语言处理任务，或打开你的智能体</span>
-              <button className="dt-natural-start" disabled={Boolean(opening[index]) || loading || Boolean(listError)} onClick={() => {void open(index, 'shell');}}>✦ 打开 AI 终端</button>
+              <button className="dt-natural-start" disabled={Boolean(opening[index]) || loading || Boolean(listError)} onClick={() => {void open(index, 'shell', undefined, true);}}>✦ 打开 AI 终端</button>
               <div className="dt-launchers">{launchers.filter(item => ['shell','codex','claude','kimi'].includes(item.id)).map(launcher => <button key={launcher.id}
                 disabled={!launcher.available || Boolean(opening[index]) || loading || Boolean(listError)}
                 title={launcher.available ? `启动 ${launcher.label}` : `${launcher.label} 尚未安装或不可用`}

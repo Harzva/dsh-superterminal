@@ -3,7 +3,7 @@
 .dsh-terminal-workspace .dt-health-row>span,.dsh-terminal-workspace .dt-health-row time{color:var(--dt-muted)}
 .dsh-terminal-workspace .dt-health-row>strong{font-weight:500;color:var(--dt-text)}
 .dsh-terminal-workspace .dt-health-row .dt-health-verified,.dsh-terminal-workspace .dt-health-row .dt-health-last_succeeded,.dsh-terminal-workspace .dt-health-row .dt-health-installed{color:var(--dt-accent)}
-.dsh-terminal-workspace .dt-health-row .dt-health-missing,.dsh-terminal-workspace .dt-health-row .dt-health-failed,.dsh-terminal-workspace .dt-health-row .dt-health-limited{color:var(--dt-warning,#b88332)}
+.dsh-terminal-workspace .dt-health-row .dt-health-missing,.dsh-terminal-workspace .dt-health-row .dt-health-failed,.dsh-terminal-workspace .dt-health-row .dt-health-limited{color:var(--dt-warning)}
 .dsh-terminal-workspace .dt-health-row time{font-size:10px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dsh-terminal-workspace .dt-check-login{width:100%;padding:8px 10px;margin-top:8px;border:1px solid var(--dt-border);border-radius:7px;background:transparent;color:var(--dt-text);font-size:11px;text-align:center}
 .dsh-terminal-workspace .dt-check-login:hover:not(:disabled){background:var(--dt-panel)}
