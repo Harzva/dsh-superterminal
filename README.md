@@ -22,10 +22,10 @@
 
 ## 安装
 
-当前版本 **0.1.0-alpha.11**，打磨 **侧栏阅读空间、成员状态与终端操作衔接**。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
+当前版本 **0.1.0-alpha.12**，加入 **SSH 远程终端**：在同一个工作台选择执行主机，断线后接回原任务。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.11/harzva-dsh-terminal-0.1.0-alpha.11.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.12/harzva-dsh-terminal-0.1.0-alpha.12.tgz
 ```
 
 首次运行：
@@ -34,13 +34,13 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 2. 在来源对话中选择可用的 DSH 模型，第一次发送 AI 任务时会沿用它。任务按来源工作区权限执行；本插件不附带模型或额度。
 3. 点击 **＋ 终端**，写下第一个任务；通过 **更多 → 智能体管理** 打开本机 CLI。
 
-目前仍为 Alpha，暂不支持 Windows、远程终端、其他 DSH 版本或 Harvis 接管。DSH Supervisor 的终端状态适配尚未包含在公开 Supervisor 0.2.4 中。
+目前仍为 Alpha，暂不支持 Windows、其他 DSH 版本或 Harvis 接管。远程终端暂不支持 DSH AI 的文件操作与自动参会；可直接使用远端 Agent CLI。DSH Supervisor 的终端状态适配尚未包含在公开 Supervisor 0.2.4 中。
 
 ## 从一句话，到实际结果
 
 输入「检查这个项目，修复失败的测试」，DSH 会调用当前配置允许的工具，读取文件、修改代码、执行命令并展示结果。你可以继续追问、在执行中追加要求，或停止任务。
 
-每个终端有自己的上下文和草稿。模型、权限、工具步骤都能看见；选区由你决定是否附上，任务不会自动送回主对话。工作台支持自由分屏，拖动调整大小、放大或收起，最多 12 个窗格。同一服务最多同时执行 2 个 AI 任务；停止 AI 会话保留记录和 Shell，重启 DSH 会结束终端进程。
+每个终端有自己的上下文和草稿。模型、权限、工具步骤都能看见；选区由你决定是否附上，任务不会自动送回主对话。工作台支持自由分屏，拖动调整大小、放大或收起，最多 12 个窗格。同一服务最多同时执行 2 个 AI 任务；停止 AI 会话保留记录和 Shell。重启 DSH 会结束本机终端；远端任务不提供跨 DSH 重启的恢复保证。
 
 <details>
 <summary><strong>查看截图：完整的 AI 执行过程</strong></summary>
@@ -59,6 +59,16 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 ![DSH 右侧的 Side Terminal](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/side-terminal.jpg)
 
 </details>
+
+## 同一个工作台，连接远端终端
+
+在空窗格选择 **SSH 远程**，选择已有 SSH 主机、填写远端绝对目录（`~` 表示远端主目录），点击 **检查连接**。检查成功后，可启动 Shell 或远端实际检测到的 Agent CLI。运行中的窗格始终显示执行主机与目录。
+
+使用本机已有的 SSH 配置和认证，远端需要安装 **tmux**。首次使用前，应已通过系统 SSH 完成主机身份确认，并能免交互登录。当前来源 DSH 会话需为 **Full access**；本插件不会自动更改权限。
+
+**收起**保留任务；SSH 中断后点击 **重新连接** 接回原进程，不重新执行任务；**结束任务**会停止这个远端任务。远端 CLI 使用远端账号和模型配置，“已检测到”不代表登录、模型或额度已就绪。
+
+首版支持远端原生 Shell / Agent CLI 和显式选区的解释建议。DSH AI 执行、自动交接、Terminal Group 仍限本机；不会把远端目标交给本机文件工具。连接恢复已在真实 SSH 隔离环境验证，外部主机与跨 DSH 重启恢复尚未验收。详见[远程终端指南](https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md#连接远端终端)。
 
 ## 让不同终端，一起讨论
 

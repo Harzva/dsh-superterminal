@@ -32,7 +32,7 @@ const packed = JSON.parse(execFileSync('tar', ['-xOf', artifact, 'package/packag
 assert.equal(packed.name, manifest.name)
 assert.equal(packed.version, manifest.version)
 const entries = execFileSync('tar', ['-tzf', artifact], { encoding: 'utf8' }).trim().split('\n')
-for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/independent-scope.mjs', 'lib/terminal-runs.mjs', 'lib/native-result-text.mjs', 'lib/terminal-groups.mjs', 'lib/terminal-group-journal.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'lib/host.mjs', 'lib/remote.mjs', 'lib/remote-execution.mjs', 'lib/independent-scope.mjs', 'lib/terminal-runs.mjs', 'lib/native-result-text.mjs', 'lib/terminal-groups.mjs', 'lib/terminal-group-journal.mjs', 'lib/pty-compat.mjs', 'lib/handoffs.mjs', 'lib/handoff-journal.mjs', 'lib/handoff-return.mjs', 'lib/cli-state.mjs', 'lib/agent-readiness.mjs', 'lib/shell-integration.mjs', 'lib/command-journal.mjs', 'lib/client.js', 'README.md', 'LICENSE']) {
   assert.ok(entries.includes(`package/${file}`), `Release artifact must include ${file}`)
 }
 assert.ok(entries.every(path => path.startsWith('package/') && !path.split('/').includes('..')))

@@ -9,7 +9,7 @@ execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: root, stdio: 'inher
 await mkdir(join(root, 'artifacts'), { recursive: true })
 const output = execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', 'artifacts'], { cwd: root, encoding: 'utf8' })
 const [packed] = JSON.parse(output)
-const required = ['package.json', 'lib/host.mjs', 'lib/terminals.mjs', 'lib/pty-compat.mjs', 'lib/remote.mjs', 'lib/client.js', 'cordis.patch.yml', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt']
+const required = ['package.json', 'lib/host.mjs', 'lib/terminals.mjs', 'lib/remote-execution.mjs', 'lib/pty-compat.mjs', 'lib/remote.mjs', 'lib/client.js', 'cordis.patch.yml', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.txt']
 const actual = new Set(packed.files.map(file => file.path))
 for (const file of required) if (!actual.has(file)) throw new Error(`Missing release file: ${file}`)
 for (const file of actual) {
