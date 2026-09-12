@@ -16,16 +16,16 @@
   <a href="https://github.com/Harzva/dsh-superterminal/releases">更新记录</a>
 </p>
 
-![DSH SuperTerminal alpha.14 浅色工作台](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/light-workspace.jpg)
+![DSH SuperTerminal alpha.15 浅色工作台](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/light-workspace.jpg)
 
-**alpha.14 工作台。** 启动选项集中在当前空窗格，其余窗格显示“添加终端”，保留你安排好的分屏。通过 **更多 → 外观** 选择浅色、深色或跟随系统，切换时保留任务、输出和草稿。
+**alpha.15 工作台。** 侧栏与放大视图提供终端切换条，切换时保留任务与草稿，放大视图继续保持放大。通过 **更多 → 外观** 选择浅色、深色或跟随系统。
 
 ## 安装
 
-当前版本 **0.1.0-alpha.14**，将新建终端、助手、协作与讨论组集中在工具栏，项目与会话归属在下方一行显示。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
+当前版本 **0.1.0-alpha.15**，改善终端切换、分屏聚焦、智能体检测反馈和小窗格操作。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.14/harzva-dsh-terminal-0.1.0-alpha.14.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.15/harzva-dsh-terminal-0.1.0-alpha.15.tgz
 ```
 
 首次运行：
@@ -56,9 +56,9 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 <details>
 <summary><strong>查看截图：对话旁的 Side Terminal</strong></summary>
 
-绑定当前对话，或留在独立工作台。窄侧栏通过 **更多** 打开解释建议、Agent 协作和讨论组；收起侧栏，任务继续。
+绑定当前对话，或留在独立工作台。通过切换条选择已有终端，保留各自草稿与进程；窄侧栏通过 **更多** 打开解释建议、Agent 协作和讨论组。收起侧栏，任务继续。
 
-![DSH SuperTerminal alpha.14 浅色 Side Terminal](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/light-side-terminal.jpg)
+![DSH SuperTerminal alpha.15 浅色 Side Terminal](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/light-side-terminal.jpg)
 
 </details>
 
@@ -70,7 +70,7 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 
 **收起**保留任务；SSH 中断后点击 **重新连接** 接回原进程，不重新执行任务；**结束任务**会停止这个远端任务。远端 CLI 使用远端账号和模型配置，“已检测到”不代表登录、模型或额度已就绪。
 
-远端支持原生 Shell / Agent CLI 和显式选区的解释建议。DSH AI 执行、自动交接、Terminal Group 仍限本机；不会把远端目标交给本机文件工具。alpha.13 已在 macOS 和 Linux 远端实机验证连接、终端尺寸调整、断线重连与任务清理；alpha.14 沿用该执行实现。远端模型执行与额度未包含在该次验收中，跨 DSH 重启续接仍不提供保证。详见[远程终端指南](https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md#连接远端终端)。
+远端支持原生 Shell / Agent CLI 和显式选区的解释建议。DSH AI 执行、自动交接、Terminal Group 仍限本机；不会把远端目标交给本机文件工具。alpha.13 已在 macOS 和 Linux 远端实机验证连接、终端尺寸调整、断线重连与任务清理；alpha.15 沿用该执行实现。远端模型执行与额度未包含在该次验收中，跨 DSH 重启续接仍不提供保证。详见[远程终端指南](https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md#连接远端终端)。
 
 ## 让不同终端，一起讨论
 
@@ -93,15 +93,15 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 
 ## 熟悉的智能体，在同一个工作台
 
-通过 **更多 → 智能体管理** 打开本机 Shell、Codex、Claude Code、Kimi Code、Pi 等工具，保留各自的原生界面。目录显示可识别的版本与使用状态。下图为 alpha.8 的实际目录；当前版本会随所选外观显示。
+通过 **更多 → 智能体管理** 打开本机 Shell、Codex、Claude Code、Kimi Code、Pi 等工具，保留各自的原生界面。通过“已安装／全部智能体”筛选，按名称或实际命令搜索，并查看可识别的版本与使用状态。下图为 alpha.15 的实际管理页。
 
-![alpha.8 实际界面：本机智能体目录与使用状态](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/agents.jpg)
+![alpha.15 实际界面：智能体筛选、命令搜索与状态依据](https://raw.githubusercontent.com/Harzva/dsh-superterminal/main/site/assets/screenshots/agents.jpg)
 
 需要搭档时，可把任务交给 **Pi / piagent 或 Codex** 在后台执行，收到结果后验收或要求返工。当前受管后台交接支持这两类 Agent；其他 CLI 可在原生终端中交互使用。
 
 Codex、Claude Code、Kimi 和 Pi 使用当前工作区的独立配置。即使你已在其他终端登录，在这里首次使用仍可能需要重新登录或配置模型。
 
-目录分别显示安装、登录和上次任务的模型连接证据；无法确认的状态显示「未知」。本机已安装不代表已有登录或可用额度，套餐与额度以各服务提供的信息为准。
+目录分别显示安装、登录和上次任务的模型连接证据；无法确认的状态显示「未知」。检测失败时保留上次结果与检查时间，恢复后才能启动；终端位置已满时也会说明原因。本机已安装不代表已有登录或可用额度，套餐与额度以各服务提供的信息为准。
 
 完整操作、恢复方式、协作范围与隐私说明见 **[中文使用指南](https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md)**。
 
