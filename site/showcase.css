@@ -110,18 +110,18 @@ dialog { max-height: 94dvh; }
 .lightbox-toolbar { min-height: 57px; }
 .lightbox-toolbar p { line-height: 1.55; }
 .lightbox-toolbar button { min-width: 38px; min-height: 38px; }
-.lightbox-scroll { max-height: calc(94dvh - 132px); background: #101512; }
+.lightbox-scroll { max-height: calc(94dvh - 132px); background: var(--white); }
 dialog[data-image-state="loading"] .lightbox-scroll, dialog[data-image-state="failed"] .lightbox-scroll { aspect-ratio: 1280 / 1000; }
 .lightbox-scroll img { min-width: 0; max-width: 100%; width: 100%; }
 dialog.is-zoomed .lightbox-scroll img { width: auto; min-width: 0; max-width: none; }
-.lightbox-controls { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 60px; padding: 10px 17px; border-top: 1px solid #34483c; }
+.lightbox-controls { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 60px; padding: 10px 17px; border-top: 1px solid var(--line); }
 .lightbox-controls>div { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-.lightbox-controls button { display: inline-flex; gap: 10px; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; padding: 6px 10px; border: 1px solid #405d4a; border-radius: 7px; color: #c1dec8; background: #213c2b; font-size: 12px; }
-.lightbox-controls button:hover { background: #2e523a; }
+.lightbox-controls button { display: inline-flex; gap: 10px; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--green); background: #eef3e9; font-size: 12px; }
+.lightbox-controls button:hover { background: #e0ebda; }
 .lightbox-controls button:disabled { opacity: .4; }
-#screenshot-position { color: #9bb7a3; font: 11px ui-monospace, monospace; white-space: nowrap; }
-#screenshot-feedback { font-size: 11px; color: #c4d4c7; line-height: 1.4; }
-#screenshot-feedback.is-error { color: #edc9a7; }
+#screenshot-position { color: var(--muted); font: 11px ui-monospace, monospace; white-space: nowrap; }
+#screenshot-feedback { font-size: 11px; color: var(--muted); line-height: 1.4; }
+#screenshot-feedback.is-error { color: #865e19; }
 #toggle-zoom { white-space: nowrap; }
 @media (max-width: 1050px) {
   .hero { gap: 26px; grid-template-columns: .92fr 1.25fr; padding-top: 35px; }
