@@ -41,6 +41,18 @@ function fixture(options = {}) {
 }
 
 const piResult = text => [{ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text }], stopReason: 'stop' } }, { type: 'agent_end' }]
+
+test('remote sources cannot dispatch local handoffs or allocate a task record', async () => {
+  const f = fixture()
+  f.sources.get('source').execution = { kind: 'ssh', label: 'Test remote', targetId: 'test-remote', cwd: '/remote/project' }
+  const result = await f.start()
+  assert.equal(result.rejected, true)
+  assert.match(result.message, /远程.*未启动本地/)
+  assert.equal(f.handles.length, 0)
+  assert.equal(f.records.size, 0)
+  assert.equal(f.handoffs.activeCount, 0)
+  await f.handoffs.close()
+})
 async function completed(f, changes) {
   const task = await f.start(changes)
   await tick(); f.handles.at(-1).finish(piResult('Returned result for review'))

@@ -94,7 +94,9 @@ export class NativeRuns {
   }
 
   record(owner, terminalId, create = false) {
-    this.terminals.owned(owner); this.terminals.entry(owner, terminalId)
+    this.terminals.owned(owner)
+    const terminal = this.terminals.entry(owner, terminalId)
+    if (terminal.execution?.kind === 'ssh') throw rejected('DSH AI 尚未连接这个远端工作区，请在远程终端使用 Agent CLI。')
     let records = this.owners.get(owner)
     if (!records && create) { records = new Map(); this.owners.set(owner, records) }
     let record = records?.get(terminalId)
@@ -336,7 +338,7 @@ export class NativeRuns {
     signal?.throwIfAborted()
     let record
     try { record = this.record(owner, terminalId, true); this.current(owner, record) }
-    catch { throw rejected('当前终端已关闭或不属于这个会话。') }
+    catch (error) { throw error?.terminalRunSafe ? error : rejected('当前终端已关闭或不属于这个会话。') }
     if (record.groupLease && record.groupLease !== groupLease) throw rejected('这个终端正在参加讨论组，请等待发言结束或在讨论组中停止。')
     const message = identifiedInput(record.sessionId, requestId, prompt, excerpt)
     const fingerprint = hash(message.content), previous = record.requests.get(requestId)

@@ -67,6 +67,24 @@ test('persisted groups preserve terminal identity, ownership, bounded records an
   await f.groups.close()
 })
 
+test('remote group candidates are unavailable for both local AI and CLI dispatch', async () => {
+  const f = fixture()
+  f.entries.get('one').execution = { kind: 'ssh', label: 'Test remote', targetId: 'test-remote', cwd: '/remote/project' }
+  f.entries.get('pi').execution = { kind: 'ssh', label: 'Test remote', targetId: 'test-remote', cwd: '/remote/project' }
+  try {
+    const catalog = await f.groups.list(f.owner)
+    for (const id of ['one', 'pi']) {
+      const candidate = catalog.candidates.find(row => row.terminalId === id)
+      assert.ok(candidate.modes.every(mode => !mode.available))
+      assert.equal(candidate.model, undefined)
+      await assert.rejects(f.create(`remote-${id}`, [id]), /GROUP_REJECTED.*远程/)
+    }
+    assert.equal(f.calls.length, 0)
+    assert.equal(f.disk.size, 0)
+    assert.ok(catalog.candidates.find(row => row.terminalId === 'two').modes.some(mode => mode.available))
+  } finally { await f.groups.close() }
+})
+
 test('two rounds use fixed shared snapshots and native replies have real models without sharing unrelated history', async () => {
   const f = fixture(), group = await f.create()
   await f.send(group, { rounds: 2, excerpt: { terminalId: 'one', text: 'EXPLICIT_MATERIAL' } })

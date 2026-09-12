@@ -4,7 +4,12 @@ const boundedId = z.string().min(1).max(128)
 const groupMember = z.object({ terminalId: boundedId, mode: z.enum(['dsh-ai', 'cli']), title: z.string().trim().min(1).max(120) }).strict()
 const groupMembers = z.array(groupMember).min(1).max(6).refine(members => new Set(members.map(member => member.terminalId)).size === members.length, '每个终端只能加入一次')
 const dimensions = { rows: z.number().int().min(2).max(500), cols: z.number().int().min(10).max(1000) }
+const remoteTargetId = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/)
+const remoteCwd = z.string().min(1).max(2048).regex(/^\/[^\x00-\x1f\x7f]*$/)
 export const requests = {
+  remoteTargets: z.object({}).strict(),
+  remoteCheck: z.object({ targetId: remoteTargetId, cwd: remoteCwd.optional() }).strict(),
+  remoteReconnect: z.object({ terminalId: boundedId, requestId: boundedId }).strict(),
   groupList: z.object({}).strict(),
   groupRead: z.object({ groupId: boundedId }).strict(),
   groupCreate: z.object({ requestId: boundedId, title: z.string().trim().min(1).max(120), members: groupMembers }).strict(),
@@ -38,7 +43,8 @@ export const requests = {
   independent: z.object({ sessionId: boundedId.optional() }).strict(),
   suggest: z.object({ prompt: z.string().trim().min(1).max(4000), terminalId: boundedId.optional(), excerpt: z.string().trim().max(8000).optional() }).strict()
     .refine(value => !value.excerpt || !!value.terminalId, { message: '分享输出前请先选择终端', path: ['terminalId'] }),
-  open: z.object({ launcher: z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/), requestId: boundedId, ...dimensions }).strict(),
+  open: z.object({ launcher: z.string().min(1).max(64).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/), requestId: boundedId, ...dimensions,
+    remote: z.object({ targetId: remoteTargetId, cwd: remoteCwd }).strict().optional() }).strict(),
   read: z.object({ terminalId: boundedId, offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
   claim: z.object({ terminalId: boundedId, viewerId: boundedId }).strict(),
   write: z.object({ terminalId: boundedId, lease: boundedId, sequence: z.number().int().nonnegative(), data: z.string().min(1).max(65536) }).strict(),

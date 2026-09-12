@@ -152,6 +152,7 @@ export class TerminalGroups {
     return input.map(member => {
       let entry
       try { entry = this.terminals.entry(owner, member.terminalId) } catch { throw rejected('有成员终端已经关闭或不属于当前会话，请重新选择。') }
+      if (entry.execution?.kind === 'ssh') throw rejected('远程终端暂不支持自动参会，请先在远端 Agent CLI 中处理任务。')
       if (member.mode === 'cli' && !['pi', 'piagent', 'codex'].includes(entry.launcher)) throw rejected('这个 CLI 暂不支持独立参会，请明确选择该终端的 DSH AI。')
       const prior = previous.find(row => row.terminalId === entry.id && row.mode === member.mode)
       return { id: prior?.id ?? randomUUID(), terminalId: entry.id, mode: member.mode, title: member.title, launcher: entry.launcher }
@@ -162,6 +163,10 @@ export class TerminalGroups {
     let targets = []
     try { targets = await this.terminals.handoffs.targets(signal) } catch { signal?.throwIfAborted() }
     return Promise.all(entries.map(async entry => {
+      if (entry.execution?.kind === 'ssh') return { terminalId: entry.id, launcher: entry.launcher, modes: [
+        { mode: 'dsh-ai', label: '终端 DSH AI', available: false, detail: 'DSH AI 尚未连接这个远端工作区，请使用远端 Agent CLI。' },
+        { mode: 'cli', label: 'CLI 独立参会', available: false, detail: '这个终端在远端运行，暂不支持自动参会。' },
+      ] }
       let model, nativeAvailable = false, detail = '当前 DSH 模型或执行权限尚不可用。'
       try {
         this.terminals.nativeRuns.assertRuntime()

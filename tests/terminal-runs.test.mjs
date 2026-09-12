@@ -78,6 +78,20 @@ test('state is read-only and first send captures actual route, composition and a
   await f.runs.close()
 })
 
+test('remote terminals cannot allocate a local AI helper through direct or group execution', async () => {
+  const f = fixture()
+  f.entries.get('t1').execution = { kind: 'ssh', label: 'Test remote', targetId: 'test-remote', cwd: '/remote/project' }
+  try {
+    await assert.rejects(f.runs.state(f.owner, { terminalId: 't1' }), /RUN_REJECTED.*远端/)
+    await assert.rejects(f.send(), /RUN_REJECTED.*远端/)
+    await assert.rejects(f.runs.groupTurn(f.owner, { terminalId: 't1', groupId: 'remote-group', requestId: 'remote-discussion', prompt: 'Review the remote project' }, new AbortController().signal), /RUN_REJECTED.*远端/)
+    assert.equal(f.handles.length, 0)
+    assert.equal(f.disk.size, 0)
+    assert.equal(f.runs.records().length, 0)
+    assert.equal((await f.runs.state(f.owner, { terminalId: 't2' })).model, 'current-model')
+  } finally { await f.runs.close() }
+})
+
 test('identified duplicate requests do not run twice and an active helper receives steer', async () => {
   const f = fixture()
   await Promise.all([f.send(), f.send()])

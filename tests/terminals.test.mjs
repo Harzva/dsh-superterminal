@@ -149,7 +149,9 @@ test('supervision snapshot is scoped to the current owner and excludes output an
     f.handles[0].output.write('PRIVATE_OUTPUT_FIXTURE')
     await f.registry.claim(f.owner, { terminalId: terminal.id, viewerId: 'private-viewer' })
     const snapshot = f.registry.supervisionSnapshot({ sessionId: f.owner.id })
-    assert.deepEqual(snapshot, { status: 'ready', terminals: [{ id: terminal.id, launcher: 'shell', state: 'running', exitCode: null }] })
+    assert.deepEqual(snapshot, { status: 'ready', terminals: [{ id: terminal.id, launcher: 'shell', state: 'running', exitCode: null,
+      execution: { kind: 'local', label: '本机', cwd: '/tmp' } }] })
+    assert.doesNotMatch(JSON.stringify(snapshot), /PRIVATE_OUTPUT_FIXTURE|private-viewer/)
     assert.equal(f.registry.supervisionSnapshot({ sessionId: 'foreign' }).status, 'unavailable')
     f.agents.set(f.owner.id, { ...f.owner })
     assert.deepEqual(f.registry.supervisionSnapshot({ sessionId: f.owner.id }), { status: 'empty', terminals: [] })

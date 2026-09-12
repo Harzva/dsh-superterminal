@@ -241,6 +241,7 @@ export class TerminalHandoffs {
       this.terminals.current(owner)
       return reject('来源终端已不可用，请重新选择当前会话中的终端')
     }
+    if (source.execution?.kind === 'ssh') return reject('远程终端暂不支持自动交接，请在远端使用 Agent CLI；本次未启动本地任务。')
     // Public handoffStart never accepts groupPurpose and sets linked tasks to
     // execution. Only the host's TerminalGroups adapter supplies discussion.
     if (input.groupPurpose === 'discussion' && (!input.sourceGroupId || relation || input.returnToConversation)) return reject('讨论发言必须来自讨论组，且只返回讨论组')
