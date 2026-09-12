@@ -1,6 +1,6 @@
 import themeCss from './terminal-theme.css';
 import { useTerminalTheme } from './use-terminal-theme';
-import { terminalThemeStore, type TerminalThemePreference } from './terminal-theme.mjs';
+import { terminalThemeStore, TERMINAL_ACCENTS, type TerminalThemePreference } from './terminal-theme.mjs';
 import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { loadWorkspaceMemory, saveWorkspaceMemory } from './workspace-memory.mjs';
 import { AgentManager, SmartAssistant } from './agent-manager';
@@ -491,7 +491,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
 
   return (
-    <div ref={workspaceRef} data-dt-theme={appearance.resolved} className={`dt-themed dsh-terminal-workspace dt-refined${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown} onDragEnd={() => {setGroupDropTarget(null);setGroupDragging(false);}}>
+    <div ref={workspaceRef} data-dt-theme={appearance.resolved} data-dt-accent={appearance.accent} className={`dt-themed dsh-terminal-workspace dt-refined${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown} onDragEnd={() => {setGroupDropTarget(null);setGroupDragging(false);}}>
       <style>{themeCss}</style>
       <style>{workspaceCss}</style>
       <style>{handoffCss}</style>
@@ -530,6 +530,14 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
             {([['light', '浅色'], ['dark', '深色'], ['system', '跟随系统']] as const).map(([value, label]) =>
               <button key={value} type="button" aria-pressed={appearance.preference === value}
                 onClick={() => terminalThemeStore.setPreference(value as TerminalThemePreference)}>{label}</button>)}
+          </div>
+          <div className="dt-accent-label"><span>主题色</span><span>{TERMINAL_ACCENTS.find(item => item.id === appearance.accent)?.label}</span></div>
+          <div className="dt-accent-options" role="group" aria-label="终端主题色">
+            {TERMINAL_ACCENTS.map(({id, label, swatch}) => <button key={id} type="button"
+              aria-label={`${label}主题色`} title={label} aria-pressed={appearance.accent === id}
+              style={{'--dt-swatch': swatch} as React.CSSProperties} onClick={() => terminalThemeStore.setAccent(id)}>
+              <span className="dt-accent-swatch">{appearance.accent === id && <UiIcon name="check" size={13}/>}</span>
+            </button>)}
           </div>
         </div>
         {!compact && <div className="dt-tools-layout">
@@ -627,7 +635,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
             left: rect?.x ?? 0, top: rect?.y ?? 0, width: rect?.width ?? 0, height: rect?.height ?? 0,
           };
           return <div className="dt-cell" data-slot-index={index} key={terminal?.id ?? `empty-${index}`} style={style} aria-hidden={!visible}>
-            {terminal ? <PaneBoundary><TerminalPane theme={appearance.resolved}
+            {terminal ? <PaneBoundary><TerminalPane theme={appearance.resolved} accent={appearance.accent}
               terminal={terminal} bridge={bridge} viewerId={viewerId} number={index + 1} connected={!listError}
               onAddToGroup={isRemote ? undefined : () => addToGroup(terminal.id, groups.selectedId)}
               onGroupDragStart={isRemote ? undefined : event => {setGroupDragging(true);event.dataTransfer.effectAllowed = 'copy';event.dataTransfer.setData('application/x-dsh-terminal', JSON.stringify({sessionId,terminalId:terminal.id}));}}

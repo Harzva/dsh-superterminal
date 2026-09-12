@@ -170,7 +170,7 @@ function TerminalOverlay(props) {
     React.createElement('button',{'aria-label':expanded?'回到侧边':'展开工作台',title:expanded?'回到侧边':'展开工作台',onClick:()=>setExpanded(value=>!value)},React.createElement(UiIcon,{name:expanded?'sidebar':'expand'})),
     React.createElement('button',{'aria-label':'工具详情',title:'工具详情',onClick:()=>{props.actions.hide();props.openDetails()}},React.createElement(UiIcon,{name:'history'})),
     React.createElement('button',{'aria-label':'收起 Side Terminal',title:'收起，保留运行中的任务',onClick:()=>{props.actions.hide();props.closeDetails()},className:'dt-side-close'},React.createElement(UiIcon,{name:'close'})))
-  const panel = React.createElement('section', { role: 'region', 'aria-label': 'Side Terminal', className:'dt-themed dt-side-terminal', 'data-dt-theme':appearance.resolved,
+  const panel = React.createElement('section', { role: 'region', 'aria-label': 'Side Terminal', className:'dt-themed dt-side-terminal', 'data-dt-theme':appearance.resolved, 'data-dt-accent':appearance.accent,
     style: { display: state.opened ? 'flex' : 'none', height:'100%', width:'100%',
       pointerEvents:'auto', flexDirection:'column', overflow:'hidden' } },
     React.createElement('style',null,themeCss),
@@ -185,7 +185,7 @@ function TerminalOverlay(props) {
       } : undefined,
       recoverSession:id===independent?recoverSession:undefined,toolbarTrailing:windowActions}))))
   return React.createElement(React.Fragment, null,
-    React.createElement('div', {ref:floatingSeat,className:'dt-themed dt-side-floating','data-dt-theme':appearance.resolved,style:{display:state.opened && !docked?'block':'none',position:'fixed',top:8,right:8,bottom:8,
+    React.createElement('div', {ref:floatingSeat,className:'dt-themed dt-side-floating','data-dt-theme':appearance.resolved,'data-dt-accent':appearance.accent,style:{display:state.opened && !docked?'block':'none',position:'fixed',top:8,right:8,bottom:8,
       width:expanded?'calc(100vw - 16px)':'min(720px, calc(100vw - 24px))',zIndex:100,pointerEvents:'auto',borderRadius:12,overflow:'hidden'}}),
     createPortal(panel, container))
 }

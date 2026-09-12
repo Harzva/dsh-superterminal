@@ -9,8 +9,8 @@
   --dt-border-strong: #b3c4b9;
   --dt-text: #262e29;
   --dt-secondary: #526057;
-  --dt-muted: #66796e;
-  --dt-faint: #75867a;
+  --dt-muted: #5a6c61;
+  --dt-faint: #5d7064;
   --dt-accent: #176f5b;
   --dt-accent-hover: #105c4a;
   --dt-accent-soft: #e6f1eb;
@@ -48,7 +48,7 @@
   --dt-text: #dce6e1;
   --dt-secondary: #baccc1;
   --dt-muted: #91a89a;
-  --dt-faint: #81978a;
+  --dt-faint: #8ca295;
   --dt-accent: #94d7c3;
   --dt-accent-hover: #b2e6d4;
   --dt-accent-soft: #20382f;
@@ -74,6 +74,118 @@
   --dt-selection: #345c50;
   color-scheme: dark;
 }
+/* Alternative accents use neutral foundations so text and separators do not
+   retain the default green tint. Status tokens remain independent. */
+.dt-themed:is([data-dt-accent="blue"], [data-dt-accent="violet"], [data-dt-accent="amber"], [data-dt-accent="rose"], [data-dt-accent="slate"]) {
+  --dt-bg: #f4f4f3;
+  --dt-subtle: #f1f2f3;
+  --dt-hover: #e9edf1;
+  --dt-border: #dfe2e6;
+  --dt-border-subtle: #e8ebee;
+  --dt-border-strong: #b7c0cb;
+  --dt-text: #28313b;
+  --dt-secondary: #555e68;
+  --dt-muted: #5f6a76;
+  --dt-faint: #626b76;
+  --dt-shadow: #2633420d;
+  --dt-shadow-floating: #2633421f;
+}
+.dt-themed[data-dt-theme="dark"]:is([data-dt-accent="blue"], [data-dt-accent="violet"], [data-dt-accent="amber"], [data-dt-accent="rose"], [data-dt-accent="slate"]) {
+  --dt-hover: #29323d;
+  --dt-bg: #0e1417;
+  --dt-subtle: #171e26;
+  --dt-border: #323c49;
+  --dt-border-subtle: #27313d;
+  --dt-border-strong: #556477;
+  --dt-text: #e1e5eb;
+  --dt-secondary: #bdc5d0;
+  --dt-muted: #a0abb9;
+  --dt-faint: #929eac;
+  --dt-on-accent: #121923;
+  --dt-shadow: #00000024;
+  --dt-shadow-floating: #00000066;
+}
+.dt-themed[data-dt-accent="blue"] {
+  --dt-accent: #35639a;
+  --dt-accent-hover: #285080;
+  --dt-accent-soft: #eaf0f8;
+  --dt-accent-border: #b6c9e1;
+  --dt-focus-halo: #35639a1f;
+  --dt-selection: #c9daee;
+}
+.dt-themed[data-dt-theme="dark"][data-dt-accent="blue"] {
+  --dt-accent: #a4c5eb;
+  --dt-accent-hover: #bfd8f5;
+  --dt-accent-soft: #253246;
+  --dt-accent-border: #516985;
+  --dt-focus-halo: #a4c5eb1f;
+  --dt-selection: #354c69;
+}
+.dt-themed[data-dt-accent="violet"] {
+  --dt-accent: #7254a0;
+  --dt-accent-hover: #5d4089;
+  --dt-accent-soft: #f0eaf8;
+  --dt-accent-border: #cbbbdf;
+  --dt-focus-halo: #7254a01f;
+  --dt-selection: #ddcfec;
+}
+.dt-themed[data-dt-theme="dark"][data-dt-accent="violet"] {
+  --dt-accent: #c7b2e6;
+  --dt-accent-hover: #ddc9f4;
+  --dt-accent-soft: #332c42;
+  --dt-accent-border: #706080;
+  --dt-focus-halo: #c7b2e61f;
+  --dt-selection: #524363;
+}
+.dt-themed[data-dt-accent="amber"] {
+  --dt-accent: #82601e;
+  --dt-accent-hover: #6b4c15;
+  --dt-accent-soft: #f7efde;
+  --dt-accent-border: #d9c6a1;
+  --dt-focus-halo: #82601e1f;
+  --dt-selection: #ead9b8;
+}
+.dt-themed[data-dt-theme="dark"][data-dt-accent="amber"] {
+  --dt-accent: #dfc18b;
+  --dt-accent-hover: #f0d5a4;
+  --dt-accent-soft: #383122;
+  --dt-accent-border: #7b6845;
+  --dt-focus-halo: #dfc18b1f;
+  --dt-selection: #615139;
+}
+.dt-themed[data-dt-accent="rose"] {
+  --dt-accent: #9a5269;
+  --dt-accent-hover: #803e54;
+  --dt-accent-soft: #faedf1;
+  --dt-accent-border: #ddbdc8;
+  --dt-focus-halo: #9a52691f;
+  --dt-selection: #ebcdd8;
+}
+.dt-themed[data-dt-theme="dark"][data-dt-accent="rose"] {
+  --dt-accent: #e4b2c4;
+  --dt-accent-hover: #f3cada;
+  --dt-accent-soft: #402c36;
+  --dt-accent-border: #835d6f;
+  --dt-focus-halo: #e4b2c41f;
+  --dt-selection: #634654;
+}
+.dt-themed[data-dt-accent="slate"] {
+  --dt-accent: #586576;
+  --dt-accent-hover: #445162;
+  --dt-accent-soft: #edf0f4;
+  --dt-accent-border: #c2cad4;
+  --dt-focus-halo: #5865761f;
+  --dt-selection: #d4dde7;
+}
+.dt-themed[data-dt-theme="dark"][data-dt-accent="slate"] {
+  --dt-accent: #c0cbd9;
+  --dt-accent-hover: #d8e0eb;
+  --dt-accent-soft: #2d3541;
+  --dt-accent-border: #647285;
+  --dt-focus-halo: #c0cbd91f;
+  --dt-selection: #465469;
+}
+
 .dt-themed :is(input, textarea, select, button) { color-scheme: inherit; }
 .dt-themed :is(button, input, textarea, select, summary):focus-visible { outline: 2px solid var(--dt-accent); outline-offset: 3px; }
 .dt-themed ::selection { background: var(--dt-selection); color: var(--dt-text); }

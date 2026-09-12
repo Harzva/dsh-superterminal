@@ -1,4 +1,4 @@
-import { TERMINAL_THEMES, type TerminalThemeName } from './terminal-theme.mjs';
+import { getTerminalTheme, type TerminalThemeName, type TerminalAccentId } from './terminal-theme.mjs';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { AgentIcon } from './agent-icon';
@@ -11,6 +11,7 @@ import type { TerminalBridge, TerminalSummary } from './types';
 
 type Props = {
   theme: TerminalThemeName;
+  accent: TerminalAccentId;
   terminal: TerminalSummary;
   bridge: TerminalBridge;
   viewerId: string;
@@ -371,8 +372,8 @@ export function TerminalPane(props: Props) {
 
   useEffect(() => {
     const term = terminalRef.current;
-    if (term) term.options.theme = TERMINAL_THEMES[props.theme];
-  }, [props.theme]);
+    if (term) term.options.theme = getTerminalTheme(props.theme, props.accent);
+  }, [props.theme, props.accent]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -392,7 +393,7 @@ export function TerminalPane(props: Props) {
       lineHeight: 1.18,
       scrollback: 5000,
       minimumContrastRatio: 4.5,
-      theme: TERMINAL_THEMES[propsRef.current.theme],
+      theme: getTerminalTheme(propsRef.current.theme, propsRef.current.accent),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
