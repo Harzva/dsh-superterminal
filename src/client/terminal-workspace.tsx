@@ -4,6 +4,8 @@ import { AgentManager, SmartAssistant } from './agent-manager';
 import { AgentIcon } from './agent-icon';
 import { assistantMemory, rememberedTerminalDrafts } from './assistant-memory';
 import type { AssistantSeed } from './assistant-memory';
+import { RemoteLauncher, REMOTE_AI_NOTICE } from './remote-launcher';
+import type { RemoteDestination, TerminalExecution } from './types';
 import { TerminalPane } from './terminal-pane';
 import { NativeTerminalTask } from './native-terminal-task';
 import { SupervisorPanel } from './supervisor-panel';
@@ -39,7 +41,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
   const [memory] = useState(() => loadWorkspaceMemory(sessionId));
-  const [records, setRecords] = useState<(null | { id: string; launcher: string; title: string })[]>(() => memory?.slots ?? Array(12).fill(null));
+  const [records, setRecords] = useState<(null | { id: string; launcher: string; title: string; execution?: TerminalExecution })[]>(() => memory?.slots ?? Array(12).fill(null));
   const recordsRef = useRef(records); recordsRef.current = records;
   const [loaded, setLoaded] = useState(false);
   const [excerpt, setExcerpt] = useState<{terminalId:string;text:string} | undefined>();
@@ -100,8 +102,10 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     return () => observer.disconnect();
   }, []);
   const [handoffOpenAt, setHandoffOpenAt] = useState<{section: 'form' | 'records'; request: number}>({section: 'form', request: 0});
-  const [handoffSource, setHandoffSource] = useState<{id: string; launcher: string; title?: string}>();
+  const [handoffSource, setHandoffSource] = useState<{id: string; launcher: string; title?: string; execution?: TerminalExecution}>();
   const handoffs = useHandoffs(bridge, active);
+  const [launchLocations, setLaunchLocations] = useState<Record<number, 'local' | 'ssh'>>({});
+  const [remoteSeeds, setRemoteSeeds] = useState<Record<number, RemoteDestination>>({});
   const [customCli, setCustomCli] = useState('');
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
@@ -183,7 +187,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
 
   useEffect(() => {
     if (!loaded) return;
-    setRecords(previous => previous.map((record,index) => slots[index] ? {id:slots[index]!.id, launcher:slots[index]!.launcher, title:record?.id===slots[index]!.id ? record.title : ''} : record));
+    setRecords(previous => previous.map((record,index) => slots[index] ? {id:slots[index]!.id, launcher:slots[index]!.launcher, execution:slots[index]!.execution, title:record?.id===slots[index]!.id ? record.title : ''} : record));
   }, [slots, loaded]);
   useEffect(() => {
     if (loaded) saveWorkspaceMemory(sessionId, { layout, preset, selectedSlot, slots:records });
@@ -194,13 +198,13 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     setExcerpt(id && text ? {terminalId: id, text} : undefined);
   }, [sessionId, selectedSlot, slots[selectedSlot]?.id]);
 
-  const open = async (index: number, launcher: string) => {
+  const open = async (index: number, launcher: string, remote?: RemoteDestination) => {
     if (opening[index] || slots[index]) return;
     setOpening(previous => ({ ...previous, [index]: 'pending' }));
     setActionError('');
     mutationRef.current += 1;
     try {
-      const terminal = await bridgeRef.current.open({ launcher, rows: 24, cols: 80, requestId: crypto.randomUUID() });
+      const terminal = await bridgeRef.current.open({ launcher, rows: 24, cols: 80, requestId: crypto.randomUUID(), ...(remote ? {remote} : {}) });
       if (!aliveRef.current) return;
       mutationRef.current += 1;
       setSlots(previous => {
@@ -210,7 +214,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         if (target >= 0) next[target] = terminal;
         return next;
       });
-      setRecords(previous => previous.map((record,i) => i===index ? {id:terminal.id,launcher:terminal.launcher,title:record?.title ?? ''} : record));
+      setRecords(previous => previous.map((record,i) => i===index ? {id:terminal.id,launcher:terminal.launcher,execution:terminal.execution,title:record?.title ?? ''} : record));
       setAutoClaimIds(previous => new Set([...previous, terminal.id]));
       setFocused(terminal.id);
       setSelectedSlot(index);
@@ -251,15 +255,20 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
 
   const terminals = slots.filter((item): item is TerminalSummary => item !== null);
+  const selectedTerminal = slots[selectedSlot];
+  const selectedExecution = selectedTerminal?.execution;
+  const selectedCwd = selectedExecution?.cwd || cwd;
   const running = terminals.filter(item => item.state === 'running').length;
   const openHandoff = (section: 'form' | 'records' = 'form') => {
     const source = slots[selectedSlot];
-    setHandoffSource(source ? {id:source.id, launcher:source.launcher, title:records[selectedSlot]?.title} : undefined);
+    setHandoffSource(source ? {id:source.id, launcher:source.launcher, execution:source.execution, title:records[selectedSlot]?.title} : undefined);
     setHandoffOpenAt(previous => ({section, request: previous.request + 1}));
     setAuxiliary('handoff');
   };
   const addToGroup = (terminalId: string, groupId?: string) => {
-    if (!slots.some(terminal => terminal?.id === terminalId)) return;
+    const source = slots.find(terminal => terminal?.id === terminalId);
+    if (!source) return;
+    if (source.execution?.kind === 'ssh') {setActionError(REMOTE_AI_NOTICE);return;}
     if (groupId) groups.select(groupId);
     setGroupSeed(previous => ({request: (previous?.request ?? 0) + 1, terminalId, groupId}));
     setAuxiliary('groups');
@@ -276,7 +285,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     const index = slots.findIndex(terminal => terminal?.id === input.sourceTerminalId);
     const source = slots[index];
     if (!source) { setActionError('来源终端已关闭，请先选择组内可用的终端。'); return; }
-    setHandoffSource({id: source.id, launcher: source.launcher, title: records[index]?.title});
+    if (source.execution?.kind === 'ssh') {setActionError(REMOTE_AI_NOTICE);return;}
+    setHandoffSource({id: source.id, launcher: source.launcher, execution:source.execution, title: records[index]?.title});
     setExcerpt({terminalId: source.id, text: input.excerpt});
     setHandoffSeed({id: crypto.randomUUID(), sessionId, sourceTerminalId: source.id, sourceGroupId: input.groupId, prompt: input.prompt, excerpt: input.excerpt});
     setHandoffOpenAt(previous => ({section: 'form', request: previous.request + 1}));
@@ -285,6 +295,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const openSelectionAction = (index: number, action: 'explain' | 'fix' | 'handoff' | 'execute', text: string) => {
     const terminal = slots[index];
     if (!terminal || !text.trim()) return;
+    if (terminal.execution?.kind === 'ssh' && (action === 'execute' || action === 'handoff')) {setActionError(REMOTE_AI_NOTICE);return;}
     showSlot(index);
     const captured = text.slice(0, 4000);
     setExcerpt({terminalId: terminal.id, text: captured});
@@ -493,7 +504,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       </header>
       <div className="dt-task-identity" aria-label="当前任务身份">
         <div><span>{contextLabel}</span><button disabled={!onShowConversation} onClick={onShowConversation} title={conversationTitle}>{conversationTitle}</button></div>
-        <div>{slots[selectedSlot] ? <><AgentIcon launcher={slots[selectedSlot]!.launcher}/><strong>{records[selectedSlot]?.title || slots[selectedSlot]!.launcher}</strong><span>终端 {String(selectedSlot + 1).padStart(2, '0')}</span><i className={listError || readIssues[slots[selectedSlot]!.id] ? 'is-offline' : ''}>{listError || readIssues[slots[selectedSlot]!.id] ? '恢复连接中' : slots[selectedSlot]!.state === 'running' ? '运行中' : '已结束'}</i></> : <span>选择一个终端，开始任务</span>}</div>
+        <div>{slots[selectedSlot] ? <><AgentIcon launcher={slots[selectedSlot]!.launcher}/><strong>{records[selectedSlot]?.title || slots[selectedSlot]!.launcher}</strong><span>终端 {String(selectedSlot + 1).padStart(2, '0')}</span><i className={listError || readIssues[slots[selectedSlot]!.id] || slots[selectedSlot]!.state === 'disconnected' ? 'is-offline' : ''}>{listError || readIssues[slots[selectedSlot]!.id] ? '恢复连接中' : slots[selectedSlot]!.state === 'reconnecting' ? 'SSH 重连中' : slots[selectedSlot]!.state === 'disconnected' ? 'SSH 已断开' : slots[selectedSlot]!.state === 'running' ? '运行中' : '已结束'}</i></> : <span>选择一个终端，开始任务</span>}</div>
       </div>
       {terminalNavigation.length > 0 && <div className="dt-hidden-panes" aria-label="切换终端"><span>{compact ? '切换终端' : '已收起 · 进程保留'}</span>{terminalNavigation.map(({terminal, index}) =>
         <button key={terminal.id} onClick={() => showSlot(index)} title={`切换到终端 ${index + 1}`}>
@@ -517,7 +528,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           ＋ {groups.groups.length ? '新建讨论组' : '组建讨论组 · 可拖入终端'}</button>
       </div>
       </div>
-      <div className="dt-workspace-context"><span className="dt-context-label">工作目录</span><span className="dt-cwd" title={cwd}>{cwd || (loading ? '读取中…' : '暂不可用')}</span><span className="dt-context-hint">{contextLabel}</span></div>
+      <div className="dt-workspace-context"><span className="dt-context-label">{selectedExecution?.kind === 'ssh' ? `SSH · ${selectedExecution.label}` : '本机工作目录'}</span><span className="dt-cwd" title={selectedCwd}>{selectedCwd || (loading ? '读取中…' : '暂不可用')}</span><span className="dt-context-hint">{contextLabel}</span></div>
       <HandoffSummary tasks={handoffs.tasks} onOpen={() => openHandoff('records')}/>
       <TerminalGroupPanel bridge={bridge} state={groups} opened={showGroups} seed={groupSeed} excerpt={excerpt}
         terminals={terminals.map(terminal => {const index = slots.findIndex(item => item?.id === terminal.id); return {...terminal, title: records[index]?.title, number: index + 1};})}
@@ -535,7 +546,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         showSlot(index); setAuxiliary(null); void open(index, id);
       }} />}
       {showSmart && <SmartAssistant bridge={bridge} sessionId={sessionId} conversationTitle={conversationTitle} contextLabel={contextLabel} connected={!listError} seed={assistantSeed} onClose={closeAuxiliary}
-        target={slots[selectedSlot] ? {id:slots[selectedSlot]!.id,launcher:slots[selectedSlot]!.launcher,title:records[selectedSlot]?.title,number:selectedSlot+1} : undefined}
+        target={slots[selectedSlot] ? {id:slots[selectedSlot]!.id,launcher:slots[selectedSlot]!.launcher,title:records[selectedSlot]?.title,number:selectedSlot+1,execution:slots[selectedSlot]!.execution} : undefined}
         excerpt={excerpt} onClearExcerpt={()=>setExcerpt(undefined)} onDraft={(targetId,text)=>{
           const index=slots.findIndex(item=>item?.id===targetId);
           if(index<0){setActionError('目标终端已关闭，请重新选择。');return;}
@@ -552,7 +563,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         {slots.map((terminal, index) => {
           const rect = geometry.panes[index];
           const visible = Boolean(rect);
-          const naturalOpen = terminal ? (naturalViews[terminal.id] ?? terminal.launcher === 'shell') : false;
+          const isRemote = terminal?.execution?.kind === 'ssh';
+          const naturalOpen = terminal && !isRemote ? (naturalViews[terminal.id] ?? terminal.launcher === 'shell') : false;
           const style: React.CSSProperties = {
             display: visible ? undefined : 'none',
             left: rect?.x ?? 0, top: rect?.y ?? 0, width: rect?.width ?? 0, height: rect?.height ?? 0,
@@ -560,10 +572,10 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           return <div className="dt-cell" data-slot-index={index} key={terminal?.id ?? `empty-${index}`} style={style} aria-hidden={!visible}>
             {terminal ? <PaneBoundary><TerminalPane
               terminal={terminal} bridge={bridge} viewerId={viewerId} number={index + 1} connected={!listError}
-              onAddToGroup={() => addToGroup(terminal.id, groups.selectedId)}
-              onGroupDragStart={event => {event.dataTransfer.effectAllowed = 'copy';event.dataTransfer.setData('application/x-dsh-terminal', JSON.stringify({sessionId,terminalId:terminal.id}));}}
+              onAddToGroup={isRemote ? undefined : () => addToGroup(terminal.id, groups.selectedId)}
+              onGroupDragStart={isRemote ? undefined : event => {event.dataTransfer.effectAllowed = 'copy';event.dataTransfer.setData('application/x-dsh-terminal', JSON.stringify({sessionId,terminalId:terminal.id}));}}
               naturalOpen={naturalOpen} onNaturalToggle={value => {setNaturalViews(previous => ({...previous, [terminal.id]: value})); if (value) setAuxiliary(null);}}
-              naturalContent={<NativeTerminalTask bridge={bridge} sessionId={sessionId}
+              naturalContent={isRemote ? undefined : <NativeTerminalTask bridge={bridge} sessionId={sessionId}
                 target={{id: terminal.id, launcher: terminal.launcher, title: records[index]?.title, number: index + 1}}
                 active={active && visible && naturalOpen} connected={!listError}
                 onOpenTerminal={() => setNaturalViews(previous => ({...previous, [terminal.id]: false}))}/>}
@@ -571,7 +583,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
               autoClaim={autoClaimIds.has(terminal.id)} onFocus={() => { if (!visible || !active) return; setFocused(terminal.id); setSelectedSlot(index); }}
               onZoom={() => { setSelectedSlot(index); setFocused(terminal.id); setZoomed(previous => previous === terminal.id ? null : terminal.id); }}
               title={records[index]?.id===terminal.id ? records[index]?.title : ''}
-              onTitleChange={title=>setRecords(previous=>previous.map((record,i)=>i===index?{id:terminal.id,launcher:terminal.launcher,title}:record))}
+              onTitleChange={title=>setRecords(previous=>previous.map((record,i)=>i===index?{id:terminal.id,launcher:terminal.launcher,execution:terminal.execution,title}:record))}
               onHide={()=>hideTerminal(index)} draft={drafts[terminal.id]}
               onSelection={text=>{
                 if (!text) return;
@@ -582,14 +594,15 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
               onSelectionAction={(action,text) => openSelectionAction(index, action, text)} centralizedStatus
               onReadStatus={failed => setReadIssues(previous => previous[terminal.id] === failed ? previous : {...previous, [terminal.id]: failed})}
               onSplit={axis => splitPane(index, axis)}
+              onReconnected={updated => {mutationRef.current += 1;setSlots(previous=>previous.map(item=>item?.id===updated.id?updated:item));}}
               onClosed={() => onClosed(terminal.id)} onState={(state, exitCode) => onState(terminal.id, state, exitCode)}
             /></PaneBoundary> : <div className={`dt-empty-pane${selectedSlot === index ? ' is-selected' : ''}`}
               onPointerDown={() => { setSelectedSlot(index); setFocused(null); }}>
               <span className="dt-empty-number">{String(index + 1).padStart(2, '0')}</span>
               {visibleSlots.length > 1 && <button className="dt-empty-hide" disabled={Boolean(opening[index])}
                 aria-label={`收起空窗格 ${index + 1}`} title="收起此空窗格" onClick={() => hideEmpty(index)}>×</button>}
-              {loaded && records[index] && <div className="dt-restore-card"><strong>{records[index]!.title || records[index]!.launcher}</strong><p>已保留任务名称与布局。重新启动将打开一个新终端。</p><button disabled={Boolean(opening[index])||Boolean(listError)} onClick={()=>{void open(index,records[index]!.launcher)}}>重新启动</button><button onClick={()=>setRecords(previous=>previous.map((item,i)=>i===index?null:item))}>移除记录</button></div>}
-              {!(loaded && records[index]) && <><span className="dt-empty-prompt">&gt;_</span>
+              {loaded && records[index] && <div className="dt-restore-card"><strong>{records[index]!.title || records[index]!.launcher}</strong>{records[index]!.execution?.kind === 'ssh' ? <><p>远端 · {records[index]!.execution!.label}<br/>{records[index]!.execution!.cwd}</p><p>远端记录已保留。请重新选择主机并检查连接；这里不会自动重启原任务。</p><button disabled={Boolean(opening[index])||Boolean(listError)} onClick={() => {const saved = records[index]!.execution!;setLaunchLocations(previous=>({...previous,[index]:'ssh'}));if(saved.targetId)setRemoteSeeds(previous=>({...previous,[index]:{targetId:saved.targetId!,cwd:saved.cwd}}));setRecords(previous=>previous.map((item,i)=>i===index?null:item));}}>重新选择远端</button></> : <><p>已保留任务名称与布局。重新启动将打开一个新终端。</p><button disabled={Boolean(opening[index])||Boolean(listError)} onClick={()=>{void open(index,records[index]!.launcher)}}>重新启动</button></>}<button onClick={()=>setRecords(previous=>previous.map((item,i)=>i===index?null:item))}>移除记录</button></div>}
+              {!(loaded && records[index]) && <><div className="dt-launch-location" role="group" aria-label={`终端 ${index + 1} 执行位置`}>{([['local','本机'],['ssh','SSH 远程']] as const).map(([location,label]) => <button key={location} type="button" aria-pressed={(launchLocations[index] ?? 'local') === location} disabled={Boolean(opening[index])} onClick={() => setLaunchLocations(previous=>({...previous,[index]:location}))}>{label}</button>)}</div>{launchLocations[index] === 'ssh' ? <RemoteLauncher bridge={bridge} initial={remoteSeeds[index]} launchState={opening[index]} onDestinationChange={destination=>setRemoteSeeds(previous=>({...previous,[index]:destination}))} disabled={Boolean(opening[index]) || loading || Boolean(listError)} onLaunch={(launcher,remote)=>{void open(index,launcher,remote);}}/> : <><span className="dt-empty-prompt">&gt;_</span>
               <strong>{opening[index] === 'pending' ? '正在启动…' : opening[index] === 'uncertain' ? '等待确认启动结果' : '在这里，开始工作。'}</strong>
               <span className="dt-empty-description">用自然语言处理任务，或打开你的智能体</span>
               <button className="dt-natural-start" disabled={Boolean(opening[index]) || loading || Boolean(listError)} onClick={() => {void open(index, 'shell');}}>✦ 打开 AI 终端</button>
@@ -602,7 +615,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
                 <input aria-label={`窗格 ${index + 1} 的其他本地 CLI`} placeholder="其他本地 CLI，如 piagent" maxLength={64}
                   value={customCli} onChange={event => setCustomCli(event.target.value)} />
                 <button disabled={!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(customCli.trim()) || Boolean(opening[index]) || loading || Boolean(listError)}>启动</button>
-              </form></details></>}
+              </form></details></>}</>}
               {loading && <span className="dt-empty-description">正在读取可用 CLI…</span>}
               {opening[index] === 'uncertain' && <button className="dt-toolbar-button" onClick={() => { void refresh(true); }}>刷新列表确认</button>}
             </div>}

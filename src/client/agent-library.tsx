@@ -35,7 +35,7 @@ export function AgentManager({bridge, onLaunch, onClose, destination}: {destinat
     <nav className="dt-manager-nav"><div className="dt-library-mark">◈</div><span className="dt-eyebrow">我的工具箱</span><h2>智能体</h2><p>为下一步，选好搭档。</p>
       <button aria-pressed={filter==='installed'} onClick={()=>setFilter('installed')}>已安装 <span>{installed}</span></button>
       <button aria-pressed={filter==='all'} onClick={()=>setFilter('all')}>全部智能体 <span>{agents.length}</span></button>
-      <div className="dt-manager-note"><span className="dt-status-dot"/> 当前工作区<br/><p>每项状态都有自己的检查时间。<br/>未知表示尚无可靠结果。</p></div>
+      <div className="dt-manager-note"><span className="dt-status-dot"/> 本机工作区<br/><p>每项状态都有自己的检查时间。<br/>未知表示尚无可靠结果。</p></div>
       <button className="dt-back" onClick={onClose}>← 返回终端</button>
     </nav>
     <div className="dt-manager-content"><header><div><span className="dt-eyebrow">智能体目录</span><h2>找到可以一起工作的搭档。</h2><p>{destination ? `将在终端 ${String(destination).padStart(2,'0')} 中开始工作。` : '查看版本、登录与最近连接状态。'}</p></div><button className="dt-icon-action" onClick={onClose} aria-label="关闭智能体管理">×</button></header>
@@ -48,7 +48,7 @@ export function AgentManager({bridge, onLaunch, onClose, destination}: {destinat
         <details><summary>查看状态依据 <span>＋</span></summary><dl><dt>命令</dt><dd>{a.executable||a.id}</dd><dt>配置</dt><dd>{a.configuration}</dd><dt>登录</dt><dd>{a.health?.authentication.detail || a.account}</dd><dt>连接</dt><dd>{a.health?.connection.detail || a.readiness}</dd><dt>套餐与额度</dt><dd>{a.health?.quota.detail || a.subscription}</dd></dl></details>
         {a.health?.canCheckLogin && <button className="dt-check-login" disabled={checking.includes(a.id)||busy} onClick={()=>{void check(a)}}>{checking.includes(a.id)?'正在核对…':'检查此工作区登录'}</button>}
         {notices[a.id] && <p className="dt-login-notice" role="status">{notices[a.id]}</p>}
-        <button className="dt-launch-agent" disabled={!a.available} onClick={()=>onLaunch(a.id)}><span>{a.available?'打开终端':'尚未安装'}</span><span>↗</span></button>
+        <button className="dt-launch-agent" disabled={!a.available} onClick={()=>onLaunch(a.id)}><span>{a.available?'在本机打开':'尚未安装'}</span><span>↗</span></button>
       </article>)}</div>
       {!busy&&!visible.length&&<div className="dt-search-empty"><h3>没有找到匹配的智能体</h3><p>试试其他名称，或切换到全部智能体。</p><button onClick={()=>{setQuery('');setFilter('all')}}>查看全部</button></div>}
     </div>

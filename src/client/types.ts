@@ -15,7 +15,13 @@ export interface TerminalSummary {
   writer?: string | null;
   lease?: string;
   exitCode?: number | null;
+  execution?: TerminalExecution;
 }
+
+export interface TerminalExecution { kind: 'local' | 'ssh'; label: string; targetId?: string; cwd: string }
+export interface RemoteDestination { targetId: string; cwd: string }
+export interface RemoteTargets { targets: {id: string; label: string}[]; available: boolean; reason?: string }
+export interface RemoteCheck { targetId: string; label: string; cwd: string; checkedAt: number; available: boolean; reason?: string; launchers: TerminalLauncher[] }
 
 export interface TerminalLauncher {
   id: string;
@@ -99,7 +105,10 @@ export interface TerminalBridge {
   commands(input: {terminalId: string; lastN?: number}): Promise<CommandSnapshot>;
   suggest(input:{prompt:string;terminalId?:string;excerpt?:string}): Promise<{text:string;model:string;terminalId?:string|null}>;
   list(): Promise<{ terminals: TerminalSummary[]; launchers: TerminalLauncher[]; cwd: string }>;
-  open(input: { launcher: string; rows: number; cols: number; requestId: string }): Promise<TerminalSummary>;
+  remoteTargets(input?: Record<string, never>): Promise<RemoteTargets>;
+  remoteCheck(input: {targetId: string; cwd?: string}): Promise<RemoteCheck>;
+  remoteReconnect(input: {terminalId: string; requestId: string}): Promise<TerminalSummary>;
+  open(input: { launcher: string; rows: number; cols: number; requestId: string; remote?: RemoteDestination }): Promise<TerminalSummary>;
   read(input: { terminalId: string; offset: number }): Promise<{
     data: string;
     nextOffset: number;

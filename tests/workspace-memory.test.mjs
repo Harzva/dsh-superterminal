@@ -22,6 +22,43 @@ test('workspace memory restores layout and metadata while excluding output and c
   for (const forbidden of ['terminal-output', 'private-', 'writer', 'env', 'TOKEN']) assert.equal(raw.includes(forbidden), false);
 });
 
+test('SSH execution metadata round-trips without storing connection credentials', () => {
+  const { options, entries, value } = fixture();
+  const execution = { kind: 'ssh', label: 'project-host', targetId: 'project-host', cwd: '/srv/project' };
+  const remote = { ...value.slots[1], execution };
+  const expected = { ...value, slots: value.slots.map((slot, index) => index === 1 ? remote : slot) };
+  const input = { ...expected, slots: expected.slots.map(slot => slot && { ...slot,
+    execution: { ...execution, password: 'private-password', identityFile: 'private-key', hostName: 'private-address' },
+  }) };
+  assert.equal(saveWorkspaceMemory('session-remote', input, options), true);
+  assert.deepEqual(loadWorkspaceMemory('session-remote', options), expected);
+  const raw = [...entries.values()][0];
+  for (const forbidden of ['private-', 'password', 'identityFile', 'hostName']) assert.equal(raw.includes(forbidden), false);
+});
+
+test('a saved SSH task stays remote without live process state and incomplete remote identity is never downgraded to local', () => {
+  const { options, entries, value } = fixture();
+  const execution = { kind: 'ssh', label: 'project-host', targetId: 'project-host', cwd: '/srv/project' };
+  const record = { ...value.slots[1], execution };
+  const saved = { ...value, slots: value.slots.map((slot, index) => index === 1 ? {
+    ...record, state: 'disconnected', pid: 1234, lease: 'private-lease', writer: 'private-writer',
+  } : slot) };
+  assert.equal(saveWorkspaceMemory('session-remote', saved, options), true);
+  const restored = loadWorkspaceMemory('session-remote', options);
+  assert.deepEqual(restored.slots[1], record, 'the remembered task carries its remote destination, not a synthetic live terminal');
+  assert.equal(saveWorkspaceMemory('session-remote', { ...restored, layout: null }, options), true);
+  assert.deepEqual(loadWorkspaceMemory('session-remote', options).slots[1], record,
+    'hiding the remaining record must preserve the explicit remote restore choice');
+  const [key, raw] = [...entries.entries()][0];
+  for (const invalid of [{ ...execution, targetId: undefined }, { ...execution, kind: 'unknown' }]) {
+    const corrupt = JSON.parse(raw);
+    corrupt.value.slots[1].execution = invalid;
+    entries.set(key, JSON.stringify(corrupt));
+    assert.equal(loadWorkspaceMemory('session-remote', options), null,
+      'an incomplete SSH record must be rejected instead of restored with local defaults');
+  }
+});
+
 test('workspace memories do not cross session or origin scopes even if stored envelope is copied', () => {
   const { options, entries, value } = fixture();
   saveWorkspaceMemory('session-a', value, options);

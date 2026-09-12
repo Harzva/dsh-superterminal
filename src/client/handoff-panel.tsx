@@ -45,7 +45,7 @@ export function useHandoffs(bridge: TerminalBridge, active: boolean) {
   return { tasks, targets, error, loaded, refresh };
 }
 
-type Source = Pick<TerminalSummary, 'id' | 'launcher'> & { title?: string };
+type Source = Pick<TerminalSummary, 'id' | 'launcher' | 'execution'> & { title?: string };
 export type HandoffSeed = {id: string; sessionId: string; sourceTerminalId: string; sourceGroupId?: string; prompt: string; excerpt: string};
 type Props = {
   bridge: TerminalBridge; sessionId: string; conversationTitle: string; source?: Source;
@@ -240,7 +240,8 @@ export function HandoffPanel(props: Props) {
     setRevealTaskId(id);
   };
   const source = pending?.source ?? (props.source?.id === selection ? props.source : undefined);
-  const sourceAvailable = !!source && props.availableTerminalIds.includes(source.id);
+  const sourceRemote = source?.execution?.kind === 'ssh';
+  const sourceAvailable = !!source && !sourceRemote && props.availableTerminalIds.includes(source.id);
   const draft = pending?.draft ?? drafts[selection ?? ''] ?? blankDraft();
   const target = pending?.input.targetLauncher || draft.target || props.targets.find(item => item.available && ['pi','piagent'].includes(item.id))?.id
     || props.targets.find(item => item.available)?.id || '';
@@ -260,7 +261,7 @@ export function HandoffPanel(props: Props) {
     setDrafts(previous => ({...previous, [selection]: {...(previous[selection] ?? blankDraft()), ...patch}}));
   };
   const submit = async () => {
-    if (inFlight.current || !source || (!pending && (!sourceAvailable || !selectedTarget?.available)) || !draft.prompt.trim() || props.error) return;
+    if (inFlight.current || !source || sourceRemote || (!pending && (!sourceAvailable || !selectedTarget?.available)) || !draft.prompt.trim() || props.error) return;
     const input: HandoffInput = pending?.input ?? { requestId: crypto.randomUUID(), sourceTerminalId: source.id,
       ...(draft.sourceGroupId ? { sourceGroupId: draft.sourceGroupId } : {}),
       targetLauncher: target, prompt: draft.prompt.trim(), criteria: draft.criteria.trim() || undefined,
@@ -307,12 +308,12 @@ export function HandoffPanel(props: Props) {
       <button className="dt-icon-action" aria-label="关闭协作面板" onClick={props.onClose}>×</button></header>
     <div className="dt-handoff-scroll" ref={scrollRef}>
       <div className="dt-handoff-destination"><span>关联对话</span><strong title={conversationTitle}>{conversationTitle}</strong></div>
-      {source ? <form className="dt-handoff-form" onSubmit={event => {event.preventDefault(); void submit();}}>
+      {sourceRemote ? <div className="dt-handoff-no-source"><strong>当前终端在远端运行</strong><p>DSH AI 尚未连接远端工作区，请使用远端 Agent CLI。</p><button onClick={props.onClose}>返回远端终端</button></div> : source ? <form className="dt-handoff-form" onSubmit={event => {event.preventDefault(); void submit();}}>
         <div className="dt-handoff-source"><span>{pending ? '原来源' : '来自'}</span><button type="button" disabled={!sourceAvailable} title={sourceAvailable ? '回到来源终端' : '来源终端已关闭'} onClick={() => {
           if (props.onShowTerminal(source.id)) props.onClose();
           else setNotice('来源终端已关闭，任务内容仍然保留。');
         }}><AgentIcon launcher={source.launcher}/><span className="dt-handoff-source-name">{source.title || agentName(source.launcher)}</span> <span>{sourceAvailable ? '↗' : '已关闭'}</span></button></div>
-        {!sourceAvailable && <p className="dt-handoff-source-closed" role="status">{pending ? '来源终端已关闭。仍可确认原提交，任务内容不会改变。' : '来源终端已关闭，草稿已保留。新建协作前，请选择一个可用终端。'}</p>}
+        {!sourceAvailable && !sourceRemote && <p className="dt-handoff-source-closed" role="status">{pending ? '来源终端已关闭。仍可确认原提交，任务内容不会改变。' : '来源终端已关闭，草稿已保留。新建协作前，请选择一个可用终端。'}</p>}
         {pending && <p className="dt-handoff-pending" role="status">{busy === 'start' ? '正在确认这项提交。' : '这项提交仍待确认。'}任务内容与原来源已保留；重新确认不会改用当前终端，也不会新建第二项任务。</p>}
         <label className="dt-handoff-label">交给谁
           <div className="dt-handoff-target"><AgentIcon launcher={target || 'shell'}/><select aria-label="接收任务的 Agent" value={target} disabled={!!pending || !props.loaded || !!props.error} onChange={event => change({target:event.target.value})}>

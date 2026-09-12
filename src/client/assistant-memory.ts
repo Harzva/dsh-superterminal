@@ -1,5 +1,6 @@
+import type { TerminalExecution } from './types';
 import type {NativeTaskState, NativeTaskInput} from './types';
-export interface AssistantTarget { id: string; launcher: string; title?: string; number?: number }
+export interface AssistantTarget { id: string; launcher: string; title?: string; number?: number; execution?: TerminalExecution }
 export interface AssistantSeed { id: string; sessionId: string; terminalId: string; prompt: string; excerpt: string }
 export interface AssistantSnapshot {
   prompt: string; excerpt: string; share: boolean; busy: boolean; error: string; request: number;

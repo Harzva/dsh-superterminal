@@ -1,6 +1,8 @@
 /** Derive availability without changing the user's selected recipients or author. */
 export function memberReadiness(member, terminals, candidates) {
-  if (!terminals.some(terminal => terminal.id === member.terminalId)) return { available: false, canOpen: false, label: '终端已关闭', detail: '终端已关闭，历史发言仍保留。' }
+  const terminal = terminals.find(terminal => terminal.id === member.terminalId)
+  if (!terminal) return { available: false, canOpen: false, label: '终端已关闭', detail: '终端已关闭，历史发言仍保留。' }
+  if (terminal.execution?.kind === 'ssh') return {available: false, canOpen: true, label: '远端暂不支持参会', detail: 'DSH AI 尚未连接远端工作区，请使用远端 Agent CLI。'}
   const candidate = candidates.find(item => item.terminalId === member.terminalId)
   const mode = candidate?.modes.find(item => item.mode === member.mode)
   if (!mode) return { available: false, canOpen: true, label: '等待检查', detail: '尚未确认当前参会身份是否可用，请刷新后重试。' }

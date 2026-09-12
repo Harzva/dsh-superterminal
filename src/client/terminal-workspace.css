@@ -221,3 +221,37 @@
 .dsh-terminal-workspace.dt-compact .dt-workspace-bar { flex-wrap:nowrap; gap:2px; padding:8px 10px; min-height:48px; }
 .dsh-terminal-workspace.dt-compact .dt-workspace-bar>.dt-toolbar-button,
 .dsh-terminal-workspace.dt-compact .dt-tools-toggle { font-size:11px; min-height:30px; padding:6px 8px; }
+
+/* Execution destination stays inside the existing terminal launcher. */
+.dsh-terminal-workspace .dt-launch-location{display:flex;align-items:center;gap:3px;border:1px solid #40504880;background:#0f171b;border-radius:9px;padding:3px;flex-shrink:0;max-width:100%;margin-bottom:7px}
+.dsh-terminal-workspace .dt-launch-location button{border:0;border-radius:6px;padding:7px 19px;color:#90a09a;font-size:12px;min-height:32px}
+.dsh-terminal-workspace .dt-launch-location button[aria-pressed=true]{background:#2b3e36;color:#dcf0e5;box-shadow:0 1px 3px #0002}
+.dsh-terminal-workspace .dt-empty-pane:has(.dt-remote-launcher){justify-content:flex-start;padding:20px 14px;gap:9px}
+.dsh-terminal-workspace .dt-remote-launcher{width:290px;max-width:100%;display:flex;flex-direction:column;gap:11px;flex-shrink:0;text-align:left}
+.dsh-terminal-workspace .dt-remote-launcher form{display:flex;flex-direction:column;gap:9px}
+.dsh-terminal-workspace .dt-remote-launcher label{display:flex;flex-direction:column;gap:5px;color:#acbbb3;font-size:11px}
+.dsh-terminal-workspace .dt-remote-launcher input,.dsh-terminal-workspace .dt-remote-launcher select{width:100%;min-width:0;background:#101b1b;border:1px solid #37483f;border-radius:7px;color:#dbe8de;font-family:inherit;font-size:12px;padding:8px 9px;min-height:34px}
+.dsh-terminal-workspace .dt-remote-launcher .dt-remote-check{background:#293e34;border:1px solid #486552;border-radius:7px;padding:8px;color:#d7ecde;font-size:12px;min-height:34px}
+.dsh-terminal-workspace .dt-remote-launcher p{margin:0;color:#a4b2a9;font-size:11px;line-height:1.6;overflow-wrap:anywhere}
+.dsh-terminal-workspace .dt-remote-launcher [role=alert]{color:#e1bd8b}
+.dsh-terminal-workspace .dt-remote-result{display:flex;flex-direction:column;gap:4px;border:1px solid #76604166;background:#71603e17;border-radius:8px;padding:9px 10px;color:#dbc391;overflow-wrap:anywhere}
+.dsh-terminal-workspace .dt-remote-result.is-ready{border-color:#42634f;background:#76b4890b;color:#bcd8c6}
+.dsh-terminal-workspace .dt-remote-result strong{font-size:12px;color:inherit;font-weight:550}
+.dsh-terminal-workspace .dt-remote-result span{font-size:11px}
+.dsh-terminal-workspace .dt-remote-result small{font-size:10px;line-height:1.5;color:#a8b5a8}
+.dsh-terminal-workspace .dt-remote-launcher .dt-remote-agents{width:100%;margin:0;gap:6px;max-height:176px;overflow:auto;padding:2px}
+.dsh-terminal-workspace .dt-remote-agents button{min-width:0;min-height:37px;padding:8px}
+.dsh-terminal-workspace .dt-remote-agents .dt-launcher-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-terminal-workspace .dt-remote-launcher .dt-remote-ai-note{border-top:1px solid #ffffff0d;padding-top:9px;font-size:11px;color:#94a79b}
+.dsh-terminal-workspace .dt-remote-location{display:flex;align-items:center;gap:8px;flex-shrink:0;padding:6px 10px;background:#19251f;color:#b8cfc0;border-bottom:1px solid #354439;font-size:11px;min-width:0}
+.dsh-terminal-workspace .dt-remote-location span{flex-shrink:0;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-terminal-workspace .dt-remote-location code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#a3b8aa;font:11px ui-monospace,monospace}
+.dsh-terminal-workspace .dt-state-disconnected{color:#e1bd8b}
+.dsh-terminal-workspace .dt-remote-disconnected{display:flex;align-items:center;gap:10px;flex-shrink:0;padding:10px;background:#413420;border-top:1px solid #745d3566;color:#e4c696}
+.dsh-terminal-workspace .dt-remote-disconnected>span{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.dsh-terminal-workspace .dt-remote-disconnected strong{font-size:12px;font-weight:500}
+.dsh-terminal-workspace .dt-remote-disconnected small{font-size:11px;line-height:1.5}
+.dsh-terminal-workspace .dt-remote-disconnected button{flex-shrink:0;font-size:11px;border:1px solid #c2a27066;border-radius:6px;background:#7c684224;padding:7px 8px;color:inherit}
+.dsh-terminal-workspace .dt-remote-advice-note{display:flex;flex-direction:column;gap:4px;margin:8px 0;padding:10px 12px;border:1px solid #48614d66;border-radius:8px;background:#8aaa8d08;color:#b5cbb9;font-size:11px;line-height:1.6}
+.dsh-terminal-workspace .dt-remote-advice-note strong{font-size:12px}.dsh-terminal-workspace .dt-remote-advice-note span{overflow-wrap:anywhere;color:#93aa98}.dsh-terminal-workspace .dt-remote-advice-note p{margin:0}
+.dsh-terminal-workspace .dt-launch-location button:focus-visible,.dsh-terminal-workspace .dt-remote-launcher :is(button,input,select):focus-visible,.dsh-terminal-workspace .dt-remote-disconnected button:focus-visible{outline:2px solid #a8d6b7;outline-offset:2px}

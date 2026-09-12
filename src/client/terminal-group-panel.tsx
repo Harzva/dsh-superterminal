@@ -76,7 +76,7 @@ export function useTerminalGroups(bridge: TerminalBridge, active: boolean) {
 }
 
 type GroupState = ReturnType<typeof useTerminalGroups>;
-type Terminal = {id: string; launcher: string; title?: string; number?: number};
+type Terminal = {id: string; launcher: string; title?: string; number?: number; execution?: {kind: string}};
 export type TerminalGroupSeed = {request: number; terminalId: string; groupId?: string};
 export type TerminalGroupHandoff = {groupId: string; sourceTerminalId: string; prompt: string; excerpt: string};
 export interface TerminalGroupPanelProps {
@@ -97,6 +97,7 @@ type Pending = {kind: 'create'; input: GroupCreateInput} | {kind: 'update'; inpu
 const blankDraft = (): Draft => ({prompt: '', rounds: 1});
 const terminalTitle = (terminal: Terminal | undefined, candidate?: GroupCandidate) => terminal?.title || agentName(terminal?.launcher || candidate?.launcher || 'shell');
 const memberInput = (candidate: GroupCandidate, terminal?: Terminal): GroupMemberInput | undefined => {
+  if (terminal?.execution?.kind === 'ssh') return undefined;
   const mode = candidate.modes.find(item => item.mode === 'dsh-ai' && item.available) || candidate.modes.find(item => item.available);
   return mode ? {terminalId: candidate.terminalId, mode: mode.mode, title: terminalTitle(terminal, candidate)} : undefined;
 };
@@ -301,18 +302,19 @@ export function TerminalGroupPanel(props: TerminalGroupPanelProps) {
       <div className="dt-group-candidate-list">{state.candidates.map(candidate => {
         const terminal = props.terminals.find(item => item.id === candidate.terminalId);
         const selected = editor.members.find(item => item.terminalId === candidate.terminalId);
-        const unavailable = !terminal || !candidate.modes.some(mode => mode.available);
+        const remote = terminal?.execution?.kind === 'ssh';
+        const unavailable = !terminal || remote || !candidate.modes.some(mode => mode.available);
         return <div key={candidate.terminalId} className={`dt-group-candidate${selected ? ' is-selected' : ''}`}>
           <label className="dt-group-candidate-heading"><input type="checkbox" checked={!!selected} disabled={blocked || !selected && (editor.members.length >= 6 || unavailable)} onChange={() => {
             const member = memberInput(candidate, terminal);
             setEditor({...editor, members: selected ? editor.members.filter(item => item.terminalId !== candidate.terminalId) : member ? [...editor.members, member] : editor.members});
           }}/><AgentIcon launcher={candidate.launcher}/><span><strong>{terminalTitle(terminal, candidate)}</strong><small>{terminal?.number ? `终端 ${String(terminal.number).padStart(2, '0')} · ` : ''}{agentName(candidate.launcher)}</small></span>{selected && <b aria-hidden="true">✓</b>}</label>
           {selected ? <div className="dt-group-member-options"><label>参会身份<select aria-label={`${terminalTitle(terminal, candidate)}的参会身份`} value={selected.mode} disabled={blocked} onChange={event => setEditor({...editor, members: editor.members.map(member => member.terminalId === selected.terminalId ? {...member, mode: event.target.value as GroupMemberInput['mode']} : member)})}>
-            {candidate.modes.map(mode => <option key={mode.mode} value={mode.mode} disabled={!mode.available}>{modeName(mode.mode)}{mode.available ? '' : ' · 暂不可用'}</option>)}
+            {candidate.modes.map(mode => <option key={mode.mode} value={mode.mode} disabled={remote || !mode.available}>{modeName(mode.mode)}{mode.available ? '' : ' · 暂不可用'}</option>)}
           </select></label><p>{selected.mode === 'cli' ? '以独立 CLI 任务参会，不会续接终端里已经打开的 CLI 对话。' : '使用这个终端的 DSH AI 会话参会；发言会明确标注 DSH AI。'}</p>
           {candidate.modes.find(mode => mode.mode === selected.mode)?.detail && <small>{candidate.modes.find(mode => mode.mode === selected.mode)?.detail}</small>}
           {selected.mode === 'dsh-ai' && candidate.model && <small>模型 · {candidate.model}</small>}</div>
-          : unavailable && <small className="dt-group-unavailable">暂时无法参会 · 请检查 DSH 模型设置{['pi','piagent','codex'].includes(candidate.launcher) ? '与 CLI 安装状态' : '；这个 CLI 的独立参会暂未支持'}。</small>}
+          : remote ? <small className="dt-group-unavailable">DSH AI 尚未连接远端工作区，请使用远端 Agent CLI。</small> : unavailable && <small className="dt-group-unavailable">暂时无法参会 · 请检查 DSH 模型设置{['pi','piagent','codex'].includes(candidate.launcher) ? '与 CLI 安装状态' : '；这个 CLI 的独立参会暂未支持'}。</small>}
         </div>;
       })}</div>
       {editor.members.filter(member => !state.candidates.some(candidate => candidate.terminalId === member.terminalId)).map(member => <div className="dt-group-missing" key={member.terminalId}><span>{member.title} · 终端已不可用</span><button type="button" disabled={blocked} onClick={() => setEditor({...editor,members:editor.members.filter(item => item.terminalId !== member.terminalId)})}>移除</button></div>)}

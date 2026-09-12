@@ -33,6 +33,7 @@ type Props = {
   onZoom(): void;
   onSplit(axis: 'x' | 'y'): void;
   onClosed(): void;
+  onReconnected?(terminal: TerminalSummary): void;
   onState(state: string, exitCode?: number | null): void;
 };
 
@@ -41,6 +42,8 @@ function nativeVisible(props: Props): boolean {
 }
 
 function stateLabel(state: string, exitCode?: number | null): string {
+  if (state === 'disconnected') return 'SSH 已断开';
+  if (state === 'reconnecting') return '正在重连';
   if (state === 'running') return '运行中';
   if (state === 'starting') return '启动中';
   if (state === 'exited') return exitCode == null ? '已退出' : `已退出 · ${exitCode}`;
@@ -53,6 +56,7 @@ function stateLabel(state: string, exitCode?: number | null): string {
 
 
 export function TerminalPane(props: Props) {
+  const remote = props.terminal.execution?.kind === 'ssh';
   const propsRef = useRef(props);
   propsRef.current = props;
   const naturalShown = props.naturalContent != null && Boolean(props.naturalOpen);
@@ -68,6 +72,11 @@ export function TerminalPane(props: Props) {
   const queueRef = useRef<Promise<void>>(Promise.resolve());
   const queuedCharacters = useRef(0);
   const managementBusy = useRef(false);
+  const reconnectingRef = useRef(false);
+  const reconnectGeneration = useRef(0);
+  const reconnectRequest = useRef<string>();
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectError, setReconnectError] = useState('');
   const controlGeneration = useRef(0);
   const gapRef = useRef(false);
   const readyRef = useRef(false);
@@ -81,6 +90,7 @@ export function TerminalPane(props: Props) {
   const [owned, setOwned] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState('');
   const [state, setState] = useState(props.terminal.state);
   const [exitCode, setExitCode] = useState(props.terminal.exitCode);
   const [bell, setBell] = useState(false);
@@ -248,25 +258,71 @@ export function TerminalPane(props: Props) {
   }, [scheduleResize, updateStdin]);
   claimRef.current = claim;
 
+  const reconnect = useCallback(async () => {
+    if (managementBusy.current || !propsRef.current.connected || propsRef.current.terminal.execution?.kind !== 'ssh') return;
+    managementBusy.current = true; reconnectingRef.current = true;
+    reconnectGeneration.current += 1;
+    lockControl(''); setReconnecting(true); setReconnectError('');
+    const requestId = reconnectRequest.current ?? crypto.randomUUID();
+    reconnectRequest.current = requestId;
+    await queueRef.current;
+    let restored = false;
+    try {
+      if (!mountedRef.current) return;
+      const result = await propsRef.current.bridge.remoteReconnect({terminalId: propsRef.current.terminal.id, requestId});
+      if (!mountedRef.current) return;
+      if (result.id !== propsRef.current.terminal.id || result.execution?.kind !== 'ssh') throw new Error('Unexpected remote terminal');
+      reconnectRequest.current = undefined;
+      stateRef.current = result.state; setState(result.state); setExitCode(result.exitCode);
+      propsRef.current.onReconnected?.(result);
+      propsRef.current.onState(result.state, result.exitCode);
+      restored = result.state === 'running';
+      if (!restored) setReconnectError(result.state === 'disconnected' ? '连接尚未恢复，可再次重连。任务不会重新启动。' : '远端任务已经结束，不会自动重新启动。');
+    } catch {
+      if (mountedRef.current) setReconnectError('尚未确认连接恢复。可再次重连，原任务不会重新启动。');
+    } finally {
+      managementBusy.current = false; reconnectingRef.current = false;
+      reconnectGeneration.current += 1;
+      if (mountedRef.current) setReconnecting(false);
+    }
+    if (restored && mountedRef.current) await claimRef.current();
+  }, [lockControl]);
+
   const close = useCallback(async () => {
     const settled = stateRef.current === 'exited' || stateRef.current === 'error';
-    const lease = leaseRef.current ?? (settled ? 'dismiss-exited' : null);
-    if (!lease || managementBusy.current) return;
+    const target = propsRef.current.terminal;
+    const remoteCleanup = target.execution?.kind === 'ssh' &&
+      (stateRef.current === 'disconnected' || stateRef.current === 'cleanup-error');
+    let lease = leaseRef.current ?? (settled ? 'dismiss-exited' : null);
+    if ((!lease && !remoteCleanup) || managementBusy.current || !propsRef.current.connected) return;
     managementBusy.current = true;
     setClosing(true);
+    setCloseError('');
+    setControlError('');
+    setReconnectError('');
     controlGeneration.current += 1;
     const generation = controlGeneration.current;
     leaseRef.current = null;
+    setOwned(false);
     updateStdin();
     await queueRef.current;
     if (!mountedRef.current) return;
     try {
-      await propsRef.current.bridge.close({ terminalId: propsRef.current.terminal.id, lease });
+      if (!lease && remoteCleanup) {
+        const result = await propsRef.current.bridge.claim({terminalId: target.id,
+          viewerId: `${propsRef.current.viewerId}:cleanup:${crypto.randomUUID()}`});
+        if (!mountedRef.current || generation !== controlGeneration.current) return;
+        // Keep this lease private to cleanup: no input, resize, or queued replay.
+        lease = result.lease;
+      }
+      if (!lease) return;
+      await propsRef.current.bridge.close({ terminalId: target.id, lease });
       if (mountedRef.current) propsRef.current.onClosed();
     } catch (error) {
       if (mountedRef.current && generation === controlGeneration.current) {
         setOwned(false);
-        setControlError('尚未确认终端是否关闭，请刷新列表查看。');
+        if (target.execution?.kind === 'ssh') setCloseError('尚未确认远端任务已结束。请重试结束；不会重连输入或重新运行任务。');
+        else setControlError('尚未确认终端是否关闭，请刷新列表查看。');
       }
     } finally {
       managementBusy.current = false;
@@ -320,6 +376,7 @@ export function TerminalPane(props: Props) {
 
     const poll = async () => {
       if (canceled || gapRef.current) return;
+      const reconnectEpoch = reconnectGeneration.current;
       let delay = nativeVisible(propsRef.current) ? 100 : 1000;
       try {
         const result = await propsRef.current.bridge.read({ terminalId: propsRef.current.terminal.id, offset });
@@ -342,16 +399,16 @@ export function TerminalPane(props: Props) {
         readableRef.current = true;
         const replayComplete = !firstRead || result.data.length === 0;
         readyRef.current = replayComplete;
-        stateRef.current = result.state;
+        const currentState = reconnectEpoch === reconnectGeneration.current && !reconnectingRef.current;
+        if (currentState && (result.state === 'disconnected' || result.state === 'reconnecting') && (stateRef.current !== 'disconnected' || leaseRef.current)) lockControl('');
+        if (currentState) stateRef.current = result.state;
         setReadError('');
         setReady(replayComplete);
-        setState(result.state);
-        setExitCode(result.exitCode);
-        propsRef.current.onState(result.state, result.exitCode);
+        if (currentState) {setState(result.state);setExitCode(result.exitCode);propsRef.current.onState(result.state, result.exitCode);}
         updateStdin();
         if (firstRead && replayComplete) {
           firstRead = false;
-          if (propsRef.current.autoClaim && result.state === 'running') void claimRef.current();
+          if (currentState && propsRef.current.autoClaim && result.state === 'running') void claimRef.current();
         }
         if (firstRead) delay = 0;
       } catch (error) {
@@ -381,7 +438,7 @@ export function TerminalPane(props: Props) {
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [props.terminal.id, scheduleResize, send, updateStdin]);
+  }, [props.terminal.id, scheduleResize, send, updateStdin, lockControl]);
 
   useEffect(() => {
     if (!leaseRef.current && props.terminal.cols > 0 && props.terminal.rows > 0) {
@@ -391,11 +448,12 @@ export function TerminalPane(props: Props) {
   }, [props.terminal.cols, props.terminal.rows]);
 
   useEffect(() => {
+    if ((props.terminal.state === 'disconnected' || props.terminal.state === 'reconnecting') && (stateRef.current !== 'disconnected' || leaseRef.current)) lockControl('');
     stateRef.current = props.terminal.state;
     setState(props.terminal.state);
     setExitCode(props.terminal.exitCode);
     updateStdin();
-  }, [props.terminal.state, props.terminal.exitCode, props.connected, terminalVisible, updateStdin]);
+  }, [props.terminal.state, props.terminal.exitCode, props.connected, terminalVisible, updateStdin, lockControl]);
 
   useEffect(() => {
     if (leaseRef.current && props.terminal.writer && props.terminal.writer !== activeViewerRef.current) {
@@ -419,6 +477,9 @@ export function TerminalPane(props: Props) {
 
   const writable = props.connected && owned && ready && !gap && !readError && state === 'running' && !closing && !claiming;
   const settled = state === 'exited' || state === 'error';
+  const reconnectPending = reconnecting || state === 'reconnecting';
+  const remoteCleanupAllowed = remote && (state === 'disconnected' || state === 'cleanup-error' && Boolean(closeError));
+  const closeDisabled = (!owned && !settled && !remoteCleanupAllowed) || closing || claiming || reconnectPending || !props.connected;
   return (
     <section ref={paneRef} className={`dt-pane${props.focused ? ' is-focused' : ''}${bell ? ' has-bell' : ''}`}
       aria-label={`终端 ${props.number} ${props.terminal.launcher}`} onPointerDown={props.onFocus}
@@ -461,9 +522,10 @@ export function TerminalPane(props: Props) {
           aria-label={props.zoomed ? '还原布局' : `放大终端 ${props.number}`}>{props.zoomed ? '↙' : '⤢'}</button>
         {props.onHide && <button className="dt-icon-button" onClick={props.onHide} title="收起终端，任务继续运行"
           aria-label={`收起终端 ${props.number}`}>−</button>}
-        <button className="dt-icon-button dt-close" onClick={() => setConfirmClose(true)} disabled={(!owned && !settled) || closing || claiming}
-          title={settled ? '移除已结束的任务' : owned ? '结束任务' : '接管后可结束任务'} aria-label={`结束终端 ${props.number} 的任务`}>×</button>
+        <button className="dt-icon-button dt-close" onClick={() => setConfirmClose(true)} disabled={closeDisabled}
+          title={settled ? '移除已结束的任务' : remoteCleanupAllowed ? '直接结束远端任务，无需恢复终端连接' : owned ? '结束任务' : '接管后可结束任务'} aria-label={`结束终端 ${props.number} 的任务`}>×</button>
       </header>
+      {props.terminal.execution && <div className="dt-remote-location" title={`${props.terminal.execution!.label} · ${props.terminal.execution!.cwd}`}><span>{remote ? `SSH · ${props.terminal.execution!.label}` : '本机'}</span><code>{props.terminal.execution!.cwd}</code></div>}
       {props.naturalContent != null && <div className="dt-pane-modes" role="group" aria-label={`终端 ${props.number} 视图`}>
         <button type="button" className={naturalShown ? 'is-active' : ''} aria-pressed={naturalShown}
           disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(true)}>AI 任务</button>
@@ -471,11 +533,12 @@ export function TerminalPane(props: Props) {
           disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(false)}>终端</button>
       </div>}
       {confirmClose && <div className="dt-pane-confirm" role="alertdialog" aria-label="确认结束任务">
-        <p>{settled ? '移除这个已结束的任务？' : '结束这个任务？当前运行会停止。'}</p>
+        <p>{settled ? '移除这个已结束的任务？' : remote ? '结束这个远端任务？SSH 主机上的任务会停止。仅收起面板则会继续运行。' : '结束这个任务？当前运行会停止。'}</p>
+        {closeError && <p role="alert">{closeError}</p>}
         <div>
           <button onClick={() => setConfirmClose(false)} disabled={closing}>取消</button>
-          <button className="dt-danger" onClick={() => { setConfirmClose(false); void close(); }}
-            disabled={(!owned && !settled) || closing || claiming}>{settled ? '移除任务' : '结束任务'}</button>
+          <button className="dt-danger" onClick={() => { if (!remote) setConfirmClose(false); void close(); }}
+            disabled={closeDisabled}>{closing ? '正在结束…' : closeError ? '重试结束' : settled ? '移除任务' : '结束任务'}</button>
         </div>
       </div>}
       {naturalShown && props.connected && !readError && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
@@ -484,12 +547,12 @@ export function TerminalPane(props: Props) {
       </div>
       <div className="dt-pane-native" style={{ display: naturalShown ? 'none' : 'flex' }} aria-hidden={naturalShown}>
       <div className="dt-terminal-scroll"><div className="dt-terminal-host" ref={hostRef} /></div>
-      {props.terminal.launcher === 'shell' && <ShellCommandHistory bridge={props.bridge} terminalId={props.terminal.id}
+      {!remote && props.terminal.launcher === 'shell' && <ShellCommandHistory bridge={props.bridge} terminalId={props.terminal.id}
         connected={props.connected && !readError} visible={terminalVisible} onExplain={text => props.onSelectionAction?.('explain', text)}/>}
       {selectionOpen && selectionText && props.focused && props.onSelectionAction && <div className="dt-selection-actions" role="toolbar" aria-label="对选中的终端内容使用 AI" style={selectionPosition}
         onPointerDown={event => event.preventDefault()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setSelectionOpen(false); }}>
         <span>终端 {String(props.number).padStart(2, '0')} · 已选 {selectionText.length} 字符</span>
-        <div>{([['execute', '直接处理'], ['explain', '解释'], ['fix', '建议修复'], ['handoff', '交给 Agent']] as const).map(([action, label]) => <button key={action} onClick={() => {
+        <div>{([['execute', '直接处理'], ['explain', '解释'], ['fix', '建议修复'], ['handoff', '交给 Agent']] as const).filter(([action]) => !remote || action === 'explain' || action === 'fix').map(([action, label]) => <button key={action} onClick={() => {
           props.onSelectionAction?.(action, selectionText); setSelectionOpen(false);
         }}>{label}</button>)}<button aria-label="收起选区操作" onClick={() => setSelectionOpen(false)}>×</button></div>
       </div>}
@@ -502,12 +565,14 @@ export function TerminalPane(props: Props) {
         <span role="status">{draftCopy === 'failed' ? '未能复制，请选中文字手动复制。' : draftCopy === 'copied'
           ? '已复制。请检查终端当前输入位置后粘贴。' : '检查内容后，可复制到这个终端。'}</span>
       </div>}
+      {remote && !closeError && !confirmClose && (state === 'disconnected' || reconnectPending) && <div className="dt-remote-disconnected" role="status"><span><strong>{reconnectPending ? '正在恢复 SSH 连接…' : 'SSH 连接已断开'}</strong><small>{reconnectError || '画面与草稿已保留。重连只恢复连接，不会重新执行任务。'}</small></span><button disabled={reconnectPending || closing || !props.connected} onClick={() => {void reconnect();}}>{reconnectPending ? '重连中…' : '重新连接'}</button></div>}
+      {remote && closeError && !confirmClose && <div className="dt-remote-disconnected" role="alert"><span><strong>结束结果待确认</strong><small>{closeError}</small></span><button disabled={closeDisabled} onClick={() => setConfirmClose(true)}>重试结束</button></div>}
       {gap && <div className="dt-pane-notice dt-danger" role="alert">输出缓冲已截断，无法准确恢复画面，输入已停用。接管后可关闭此终端，再新建。</div>}
       {props.connected && !props.centralizedStatus && !gap && readError && <div className="dt-pane-notice" role="status">输出读取失败：{readError}。暂停输入，正在重试读取…</div>}
       {!gap && !readError && !ready && <div className="dt-pane-notice" role="status">正在读取真实终端输出…</div>}
-      {props.connected && !readError && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
+      {props.connected && !readError && state !== 'disconnected' && !reconnectPending && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
       <footer className="dt-pane-footer">
-        <span title={props.terminal.id}>{props.terminal.pid ? `PID ${props.terminal.pid}` : '等待进程'}</span>
+        <span title={props.terminal.id}>{remote ? 'SSH' : props.terminal.pid ? `PID ${props.terminal.pid}` : '等待进程'}</span>
         <span title="终端字符列数 × 行数">{size.cols} × {size.rows}</span>
         <div className="dt-font-controls" aria-label={`终端 ${props.number} 字号`}>
           <button disabled={fontSize <= 10} onClick={() => setFontSize(value => Math.max(10, value - 1))}
@@ -519,7 +584,7 @@ export function TerminalPane(props: Props) {
         <button className="dt-scroll-bottom" onClick={() => terminalRef.current?.scrollToBottom()}
           title="回到最新输出" aria-label={`终端 ${props.number} 回到底部`}>↓</button>
         <span className="dt-pane-spacer" />
-        {settled ? <span>进程已结束</span> : !props.connected || readError ? <span>输入暂停</span> : owned && !controlError ? <span className="dt-writer">可输入</span> : <button
+        {state === 'disconnected' || reconnectPending ? <span>输入暂停</span> : settled ? <span>进程已结束</span> : !props.connected || readError ? <span>输入暂停</span> : owned && !controlError ? <span className="dt-writer">可输入</span> : <button
           className="dt-claim" disabled={claiming || closing || (state !== 'running' && state !== 'cleanup-error')} onClick={() => { void claim(); }}
           title="取得此终端的人工输入控制权">{claiming ? '接管中…' : controlError ? '重新接管' : '接管输入'}</button>}
         <button className="dt-interrupt" disabled={!writable} onClick={() => send('\u0003')} title="向此终端发送 Ctrl-C">Ctrl-C</button>

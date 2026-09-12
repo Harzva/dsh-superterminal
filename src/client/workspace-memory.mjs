@@ -27,7 +27,15 @@ function metadata(value) {
         ids.has(slot.id) || typeof slot.launcher !== 'string' || !SAFE_LAUNCHER.test(slot.launcher) ||
         typeof slot.title !== 'string' || slot.title.length > 48 || /[\u0000-\u001f\u007f]/.test(slot.title)) return null;
     ids.add(slot.id);
-    slots.push({ id: slot.id, launcher: slot.launcher, title: slot.title });
+    let execution;
+    if (slot.execution !== undefined) {
+      const item = slot.execution;
+      if (!item || !['local', 'ssh'].includes(item.kind) || typeof item.label !== 'string' || !item.label || item.label.length > 256 ||
+          typeof item.cwd !== 'string' || !item.cwd || item.cwd.length > 4096 || /[\u0000-\u001f\u007f]/.test(item.label + item.cwd) ||
+          item.kind === 'ssh' && (typeof item.targetId !== 'string' || !SAFE_ID.test(item.targetId))) return null;
+      execution = {kind: item.kind, label: item.label, cwd: item.cwd, ...(item.kind === 'ssh' ? {targetId: item.targetId} : {})};
+    }
+    slots.push({ id: slot.id, launcher: slot.launcher, title: slot.title, ...(execution ? {execution} : {}) });
   }
   const leaves = new Set();
   const branches = new Set();

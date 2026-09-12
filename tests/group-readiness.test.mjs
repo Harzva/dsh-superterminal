@@ -43,3 +43,21 @@ test('only an explicit valid selection or restored availability makes the action
   const empty = groupReadiness(members, terminals, candidates, [], '')
   assert.equal(empty.canSend, false); assert.equal(empty.canConclude, false)
 })
+
+test('SSH terminals cannot use either local execution identity even when an old candidate list says available', () => {
+  const remote = { id: 'two', execution: { kind: 'ssh', label: 'project-host', targetId: 'project-host', cwd: '/srv/project' } }
+  const availableTerminals = [{ id: 'one' }, remote]
+  for (const mode of ['cli', 'dsh-ai']) {
+    const selectedMembers = [members[0], { ...members[1], mode }]
+    const before = structuredClone({ selectedMembers, availableTerminals, candidates })
+    const state = groupReadiness(selectedMembers, availableTerminals, candidates, ['reviewer', 'builder'], 'builder')
+    assert.equal(state.canSend, false); assert.equal(state.canConclude, false)
+    assert.deepEqual(state.invalidTargets, ['builder'])
+    assert.deepEqual(state.targets, ['reviewer', 'builder']); assert.equal(state.author, 'builder')
+    assert.equal(state.byId.get('builder').canOpen, true)
+    assert.equal(state.byId.get('builder').available, false)
+    assert.match(state.byId.get('builder').detail, /远端 Agent CLI/)
+    assert.equal(state.byId.get('reviewer').available, true)
+    assert.deepEqual({ selectedMembers, availableTerminals, candidates }, before)
+  }
+})
