@@ -121,6 +121,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const [actionError, setActionError] = useState('');
   const aliveRef = useRef(true);
   const mutationRef = useRef(0);
+  const pendingOpensRef = useRef(0);
   const listSequence = useRef(0);
   const listRef = useRef<() => Promise<void>>(async () => {});
 
@@ -129,7 +130,9 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     const mutation = mutationRef.current;
     try {
       const result = await bridgeRef.current.list();
-      if (!aliveRef.current || sequence !== listSequence.current || mutation !== mutationRef.current) return;
+      // The open response owns placement until it reserves the requested pane.
+      // A concurrent list may already see the Host process without that placement.
+      if (!aliveRef.current || pendingOpensRef.current > 0 || sequence !== listSequence.current || mutation !== mutationRef.current) return;
       const active = result.terminals.filter(item => item.state !== 'closed');
       const byId = new Map(active.map(item => [item.id, item]));
       setSlots(previous => {
@@ -212,6 +215,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     setOpening(previous => ({ ...previous, [index]: 'pending' }));
     setActionError('');
     mutationRef.current += 1;
+    pendingOpensRef.current += 1;
     try {
       const terminal = await bridgeRef.current.open({ launcher, rows: 24, cols: 80, requestId: crypto.randomUUID(), ...(remote ? {remote} : {}) });
       if (!aliveRef.current) return;
@@ -239,6 +243,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       if (!aliveRef.current) return;
       setOpening(previous => ({ ...previous, [index]: 'uncertain' }));
       setActionError('尚未确认启动结果。请先刷新列表，确认终端是否已打开。');
+    } finally {
+      pendingOpensRef.current -= 1;
     }
   };
 
