@@ -22,10 +22,10 @@
 
 ## 安装
 
-当前版本 **0.1.0-alpha.15**，改善终端切换、分屏聚焦、智能体检测反馈和小窗格操作。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
+当前版本 **0.1.0-alpha.16**，修复快捷键、管理页退出与结束确认的交互细节。支持 **macOS · Node.js 24+ · 官方 DSH 0.1.1-rc.2**。
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.15/harzva-dsh-terminal-0.1.0-alpha.15.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.16/harzva-dsh-terminal-0.1.0-alpha.16.tgz
 ```
 
 首次运行：
@@ -35,6 +35,8 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 3. 点击 **新建终端**，写下第一个 AI 任务；也可在选中的空窗格直接打开 Shell、Codex、Claude Code 或 Kimi Code，更多工具在 **全部智能体** 中。
 
 目前仍为 Alpha，暂不支持 Windows、其他 DSH 版本或 Harvis 接管。远程终端暂不支持 DSH AI 的文件操作与自动参会；可直接使用远端 Agent CLI。DSH Supervisor 的终端状态适配尚未包含在公开 Supervisor 0.2.4 中。
+
+输入框与辅助面板不再误触发终端切换和放大快捷键；智能体管理页在检测或点击说明后，仍可按 **Esc** 关闭。切换或收起终端会取消尚未提交的结束确认，任务继续运行。
 
 ## 从一句话，到实际结果
 
@@ -70,7 +72,7 @@ dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/release
 
 **收起**保留任务；SSH 中断后点击 **重新连接** 接回原进程，不重新执行任务；**结束任务**会停止这个远端任务。远端 CLI 使用远端账号和模型配置，“已检测到”不代表登录、模型或额度已就绪。
 
-远端支持原生 Shell / Agent CLI 和显式选区的解释建议。DSH AI 执行、自动交接、Terminal Group 仍限本机；不会把远端目标交给本机文件工具。alpha.13 已在 macOS 和 Linux 远端实机验证连接、终端尺寸调整、断线重连与任务清理；alpha.15 沿用该执行实现。远端模型执行与额度未包含在该次验收中，跨 DSH 重启续接仍不提供保证。详见[远程终端指南](https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md#连接远端终端)。
+远端支持原生 Shell / Agent CLI 和显式选区的解释建议。DSH AI 执行、自动交接、Terminal Group 仍限本机；不会把远端目标交给本机文件工具。alpha.13 已在 macOS 和 Linux 远端实机验证连接、终端尺寸调整、断线重连与任务清理；alpha.16 沿用该执行实现。远端模型执行与额度未包含在该次验收中，跨 DSH 重启续接仍不提供保证。详见[远程终端指南](https://github.com/Harzva/dsh-superterminal/blob/main/docs/guide.zh-CN.md#连接远端终端)。
 
 ## 让不同终端，一起讨论
 
