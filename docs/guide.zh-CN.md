@@ -8,10 +8,10 @@
 
 当前支持 **macOS、Node.js 24+ 和官方 DSH 0.1.1-rc.2**，可连接具有 OpenSSH 与 tmux 的远端终端。暂不支持 Windows 或其他 DSH 版本。
 
-安装 alpha.16，然后重启所选 DSH 配置：
+安装 alpha.17，然后重启所选 DSH 配置：
 
 ```sh
-dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.16/harzva-dsh-terminal-0.1.0-alpha.16.tgz
+dsh plugin --profile web add https://github.com/Harzva/dsh-superterminal/releases/download/v0.1.0-alpha.17/harzva-dsh-terminal-0.1.0-alpha.17.tgz
 ```
 
 在 DSH 输入栏点击 **终端**，或输入 **/terminal** 并选择“打开终端”。从旧版 DSH Terminal 升级时继续使用同一插件，无需额外安装第二份。
@@ -49,7 +49,7 @@ Side Terminal 提供两种关联方式：
 
 ## 安排与恢复你的工作台
 
-默认使用浅色外观。在 **更多 → 外观** 中选择 **浅色**、**深色** 或 **跟随系统**，Side Terminal 与展开工作台会一起更新。偏好保存在当前浏览器中；切换外观不会重新启动终端，已有输出和草稿继续保留。
+默认使用浅色外观与 **薄荷绿** 主题色。在 **更多 → 外观** 中分别选择 **浅色／深色／跟随系统** 与主题色：**薄荷绿、雾蓝、鸢尾紫、琥珀、玫瑰、石墨**。两项设置互不改变；跟随系统时仍保留所选主题色。Side Terminal 与展开工作台即时更新，不重新启动终端，已有输出和草稿继续保留。偏好保存在当前浏览器中。
 
 终端会改善低对比度文字的可读性。部分智能体 CLI 使用自己的配色，仍可在该 CLI 的设置中选择适合的外观。
 
@@ -87,7 +87,7 @@ Remote 集成在 SuperTerminal 中，无需再安装一个 DSH Remote 插件。
 
 远端支持原生 Shell / Agent CLI、分屏、尺寸调整及显式选区的解释建议。**DSH AI 执行、自动 Agent 交接与 Terminal Group 暂限本机**，远端 Shell 也暂不生成命令块；需要 AI 在远端干活时，请使用远端 Agent CLI。助手建议会说明所帮助的远端目标，仍需你检查后执行。
 
-远端输出经 SSH 传回本机显示，不会自动发送给模型。解释请求只共享你明确附上的选区；浏览器恢复记录包含远端别名与目录，不保存 SSH 密钥。alpha.13 已在 macOS arm64（tmux 3.7c）与 Linux x86_64（tmux 3.2a）远端实机验证连接、终端尺寸调整、断线重连与任务清理；alpha.16 沿用该执行实现。该次验收未覆盖远端模型执行、登录套餐或额度；当前仍不保证跨 DSH 重启续接。
+远端输出经 SSH 传回本机显示，不会自动发送给模型。解释请求只共享你明确附上的选区；浏览器恢复记录包含远端别名与目录，不保存 SSH 密钥。alpha.13 已在 macOS arm64（tmux 3.7c）与 Linux x86_64（tmux 3.2a）远端实机验证连接、终端尺寸调整、断线重连与任务清理；alpha.17 沿用该执行实现。该次验收未覆盖远端模型执行、登录套餐或额度；当前仍不保证跨 DSH 重启续接。
 
 ## 助手知道正在帮助哪个任务
 
