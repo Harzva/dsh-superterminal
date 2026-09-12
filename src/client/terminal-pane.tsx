@@ -593,9 +593,23 @@ export function TerminalPane(props: Props) {
         </div>}
       </div>
       {confirmClose && <div className="dt-pane-confirm" role="alertdialog" aria-label="确认结束任务" aria-describedby={closeDescriptionId}
+        onClick={event => {
+          const target = event.target;
+          if (target instanceof Element && !target.closest('button,input,textarea,select,a[href]')) {
+            event.currentTarget.querySelector<HTMLElement>('.dt-pane-confirm-body')?.focus({preventScroll:true});
+          }
+        }}
         onKeyDown={event => {
-          if (event.key !== 'Escape' || closing) return;
-          event.preventDefault(); event.stopPropagation(); cancelClose();
+          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+          if (event.key === 'Escape' && !closing) {
+            event.preventDefault(); event.stopPropagation(); cancelClose(); return;
+          }
+          if (event.key !== 'Tab') return;
+          const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[tabindex="0"],button:not(:disabled)'))
+            .filter(node => node.getClientRects().length > 0);
+          const first = controls[0], last = controls.at(-1);
+          if (event.shiftKey && document.activeElement === first && last) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && document.activeElement === last && first) { event.preventDefault(); first.focus(); }
         }}>
         <div className="dt-pane-confirm-body" id={closeDescriptionId} tabIndex={0}>
           <p>{settled ? '移除这个已结束的任务？' : remote ? '结束远端任务？主机上的进程将停止。' : '结束这个任务？当前运行会停止。'}</p>
@@ -603,7 +617,11 @@ export function TerminalPane(props: Props) {
         </div>
         <div className="dt-pane-confirm-actions">
           <button autoFocus onClick={cancelClose} disabled={closing}>取消</button>
-          <button className="dt-danger" onClick={() => { if (!remote) setConfirmClose(false); void close(); }}
+          <button className="dt-danger" onClick={event => {
+            if (!remote) setConfirmClose(false);
+            else event.currentTarget.closest('.dt-pane-confirm')?.querySelector<HTMLElement>('.dt-pane-confirm-body')?.focus({preventScroll:true});
+            void close();
+          }}
             disabled={closeDisabled}>{closing ? '正在结束…' : closeError ? '重试结束' : settled ? '移除任务' : '结束任务'}</button>
         </div>
       </div>}
