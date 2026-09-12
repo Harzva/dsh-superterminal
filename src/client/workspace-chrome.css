@@ -33,7 +33,17 @@
 .dt-refined .dt-context-row .dt-handoff-summary:hover { background:var(--dt-hover); color:var(--dt-text); }
 .dt-refined .dt-group-strip { padding:3px 20px 8px; min-height:0; border:0; }
 .dt-refined .dt-group-strip button { min-height:26px; font-size:11px; border-radius:7px; }
-.dt-refined .dt-hidden-panes { padding:3px 20px 8px; }
+.dt-refined .dt-terminal-navigation { display:flex; align-items:center; gap:8px; min-width:0; padding:2px 20px 6px; }
+.dt-refined .dt-navigation-label { color:var(--dt-muted); font-size:10px; white-space:nowrap; }
+.dt-refined .dt-terminal-switcher { display:flex; gap:5px; min-width:0; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:thin; padding:3px 2px; }
+.dt-refined .dt-terminal-switcher>button { display:flex; align-items:center; gap:7px; flex:0 0 auto; max-width:220px; min-height:30px; padding:5px 9px; color:var(--dt-muted); border:1px solid transparent; border-radius:7px; font-size:11px; background:transparent; }
+.dt-refined .dt-terminal-switcher>button:hover { color:var(--dt-text); background:var(--dt-hover); }
+.dt-refined .dt-terminal-switcher>button[aria-pressed=true] { background:var(--dt-surface); color:var(--dt-text); border-color:var(--dt-border); box-shadow:0 1px 2px var(--dt-shadow); }
+.dt-refined .dt-terminal-switcher .dt-agent-icon { width:15px; height:15px; flex-shrink:0; }
+.dt-refined .dt-navigation-number { flex-shrink:0; font:10px ui-monospace,monospace; color:var(--dt-faint); }
+.dt-refined .dt-navigation-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dt-refined .dt-navigation-all { flex-shrink:0; font-size:10px; color:var(--dt-muted); padding:6px; }
+.dt-refined.dt-compact .dt-terminal-navigation { padding-inline:12px; }
 .dt-refined .dt-layout-viewport { margin:8px 16px 6px; }
 .dt-refined .dt-empty-pane { padding:42px 28px; gap:12px; border-radius:12px; border:1px solid var(--dt-border-subtle); background:color-mix(in srgb,var(--dt-panel) 56%,var(--dt-bg)); container:empty-pane / size; }
 .dt-refined .dt-empty-pane.is-selected { background:var(--dt-panel); border-color:var(--dt-border); box-shadow:0 1px 4px var(--dt-shadow); }

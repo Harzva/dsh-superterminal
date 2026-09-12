@@ -1,0 +1,54 @@
+.dsh-terminal-workspace .dt-manager.dt-library-polished{display:flex;min-width:0}
+.dsh-terminal-workspace .dt-library-polished .dt-manager-content{flex:1;min-width:0;padding:22px 24px 28px}
+.dsh-terminal-workspace .dt-library-polished .dt-manager-content>header{gap:16px;align-items:center}
+.dsh-terminal-workspace .dt-library-polished .dt-manager-content h2{margin:0 0 5px;font-size:18px;font-weight:600;letter-spacing:0;line-height:1.4}
+.dsh-terminal-workspace .dt-library-polished .dt-manager-content header p{font-size:11px;line-height:1.6}
+.dsh-terminal-workspace .dt-library-polished .dt-icon-action{display:grid;place-items:center;flex-shrink:0;width:32px;height:32px;padding:6px;border:1px solid var(--dt-border);border-radius:8px}
+.dsh-terminal-workspace .dt-library-polished .dt-library-toolbar{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+.dsh-terminal-workspace .dt-library-polished .dt-library-filters{display:flex;flex-shrink:0;gap:3px;padding:3px;border:1px solid var(--dt-border);border-radius:9px;background:var(--dt-subtle)}
+.dsh-terminal-workspace .dt-library-polished .dt-library-filters button{display:flex;align-items:center;gap:8px;min-height:30px;padding:5px 10px;font-size:11px;white-space:nowrap}
+.dsh-terminal-workspace .dt-library-polished .dt-library-filters button[aria-pressed=true]{background:var(--dt-panel);color:var(--dt-text);box-shadow:0 1px 3px var(--dt-shadow)}
+.dsh-terminal-workspace .dt-library-polished .dt-library-filters span{font-size:10px;font-variant-numeric:tabular-nums;color:var(--dt-muted)}
+.dsh-terminal-workspace .dt-library-polished .dt-library-searchrow{display:flex;flex:1 1 270px;min-width:0;gap:9px;align-items:center}
+.dsh-terminal-workspace .dt-library-polished .dt-search{min-width:0;gap:8px;padding:8px 10px;border-radius:8px}
+.dsh-terminal-workspace .dt-library-polished .dt-search>svg{flex-shrink:0;color:var(--dt-muted)}
+.dsh-terminal-workspace .dt-library-polished .dt-search:focus-within{border-color:var(--dt-accent);box-shadow:0 0 0 2px var(--dt-focus-halo)}
+.dsh-terminal-workspace .dt-library-polished .dt-search input:focus-visible{outline:none}
+.dsh-terminal-workspace .dt-library-polished .dt-library-refresh{flex-shrink:0;min-height:34px;padding:6px 10px;border:1px solid var(--dt-border);font-size:11px;white-space:nowrap;border-radius:8px}
+.dsh-terminal-workspace .dt-library-polished .dt-library-count{flex-wrap:wrap;gap:4px 12px;margin:16px 0 12px;font-size:10px;line-height:1.6}
+.dsh-terminal-workspace .dt-library-polished .dt-library-count time{color:var(--dt-muted);font-variant-numeric:tabular-nums}
+.dsh-terminal-workspace .dt-library-polished .dt-library-notice{display:flex;align-items:center;gap:12px;padding:10px 12px;margin:0 0 14px;border:1px solid var(--dt-border);background:var(--dt-subtle);border-radius:8px;font-size:11px;line-height:1.65;color:var(--dt-secondary);overflow-wrap:anywhere}
+.dsh-terminal-workspace .dt-library-polished .dt-library-notice.is-error{border-color:var(--dt-warning-border);background:var(--dt-warning-soft);color:var(--dt-warning)}
+.dsh-terminal-workspace .dt-library-polished .dt-library-notice p{margin:0;flex:1}
+.dsh-terminal-workspace .dt-library-polished .dt-library-notice button{flex-shrink:0;border:1px solid currentColor;border-radius:6px;padding:4px 9px}
+.dsh-terminal-workspace .dt-library-polished .dt-library-loading,.dsh-terminal-workspace .dt-library-polished .dt-search-empty{padding:42px 12px;text-align:center;color:var(--dt-muted);font-size:12px}
+.dsh-terminal-workspace .dt-library-polished .dt-search-empty h3{font-size:14px;font-weight:500}
+.dsh-terminal-workspace .dt-library-polished .dt-search-empty button{border:1px solid var(--dt-border);padding:7px 11px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr));gap:12px;align-items:start}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-grid article{min-width:0;padding:16px;border-radius:10px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-card-top{gap:10px;margin-bottom:14px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-card-top>div:last-child{min-width:0}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-card-top h3{font-size:13px;letter-spacing:0;overflow-wrap:anywhere}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-logo{width:34px;height:34px;flex-shrink:0;border-radius:9px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-logo .dt-agent-icon{width:22px;height:22px}
+.dsh-terminal-workspace .dt-library-polished .dt-version{overflow-wrap:anywhere;line-height:1.6}
+.dsh-terminal-workspace .dt-library-polished .dt-card-config{margin:8px 0}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-health{margin:8px 0;padding:6px 0}
+.dsh-terminal-workspace .dt-library-polished .dt-health-row{grid-template-columns:68px minmax(0,1fr) auto;gap:6px;font-size:10px;line-height:1.6}
+.dsh-terminal-workspace .dt-library-polished .dt-health-row>strong{min-width:0;overflow-wrap:anywhere}
+.dsh-terminal-workspace .dt-library-polished .dt-health-row time{font-size:9px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-grid details{margin-top:10px;padding-top:0;border-top:0;font-size:11px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-grid summary{align-items:center;min-height:28px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-grid summary::-webkit-details-marker{display:none}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-grid details[open]>summary .dt-ui-icon{transform:rotate(180deg)}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-grid dl{grid-template-columns:58px minmax(0,1fr);gap:8px;font-size:10px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-actions{display:flex;align-items:center;gap:8px;margin-top:12px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-actions .dt-check-login{width:auto;flex-shrink:0;margin:0;padding:8px 10px;font-size:11px;min-height:34px;border-radius:7px}
+.dsh-terminal-workspace .dt-library-polished .dt-agent-actions .dt-launch-agent{flex:1;min-width:0;width:auto;gap:8px;align-items:center;justify-content:center;margin:0;padding:8px 10px;min-height:34px;font-size:11px}
+.dsh-terminal-workspace .dt-library-polished .dt-launch-agent>.dt-ui-icon{flex-shrink:0}
+@container (max-width:520px){
+  .dsh-terminal-workspace .dt-library-polished .dt-manager-content{padding:16px 14px 22px}
+  .dsh-terminal-workspace .dt-library-polished .dt-library-toolbar{gap:10px;margin-top:16px}
+  .dsh-terminal-workspace .dt-library-polished .dt-library-searchrow{flex-basis:100%}
+  .dsh-terminal-workspace .dt-library-polished .dt-agent-grid{grid-template-columns:minmax(0,1fr)}
+}

@@ -67,6 +67,9 @@ export function TerminalPane(props: Props) {
   const terminalVisible = nativeVisible(props);
   const hostRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLElement>(null);
+  const paneMenuRef = useRef<HTMLDetailsElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const closeDescriptionId = React.useId();
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const mountedRef = useRef(false);
@@ -119,6 +122,22 @@ export function TerminalPane(props: Props) {
     setLocalTitle(value);
     props.onTitleChange?.(value);
     setEditingTitle(false);
+  };
+
+  const splitFromMenu = (axis: 'x' | 'y') => {
+    const menu = paneMenuRef.current;
+    if (menu) menu.open = false;
+    const trigger = menu?.querySelector<HTMLElement>('summary');
+    if (trigger?.isConnected && trigger.getClientRects().length) trigger.focus();
+    props.onSplit(axis);
+  };
+
+  const cancelClose = () => {
+    setConfirmClose(false);
+    requestAnimationFrame(() => {
+      const trigger = closeButtonRef.current;
+      if (trigger?.isConnected && trigger.getClientRects().length && !trigger.disabled) trigger.focus();
+    });
   };
 
   const focusNativeTerminal = () => {
@@ -527,7 +546,7 @@ export function TerminalPane(props: Props) {
         {bell && <button className="dt-bell" onClick={() => setBell(false)} title="清除终端响铃标记">终端响铃 ×</button>}
         <span className="dt-pane-spacer" />
         <div className="dt-pane-actions">
-          <details className="dt-pane-menu" onBlur={event => {
+          <details ref={paneMenuRef} className="dt-pane-menu" onBlur={event => {
             if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
           }} onKeyDown={event => {
             if (event.key !== 'Escape') return;
@@ -535,20 +554,21 @@ export function TerminalPane(props: Props) {
             event.currentTarget.querySelector<HTMLElement>('summary')?.focus();
           }}>
             <summary aria-label={`终端 ${props.number} 更多操作`} title="更多操作"><UiIcon name="more"/></summary>
-            <div className="dt-pane-menu-items" role="group" aria-label={`终端 ${props.number} 操作`} onClick={event => {
-              if ((event.target as HTMLElement).closest('button')) event.currentTarget.closest('details')?.removeAttribute('open');
-            }}>
-              {props.onAddToGroup && <button type="button" className="dt-pane-group" onClick={props.onAddToGroup}
+            <div className="dt-pane-menu-items" role="group" aria-label={`终端 ${props.number} 操作`}>
+              {props.onAddToGroup && <button type="button" className="dt-pane-group" onClick={() => {
+                if (paneMenuRef.current) paneMenuRef.current.open = false;
+                props.onAddToGroup?.();
+              }}
                 aria-label={`将终端 ${props.number} 加入讨论组`}><UiIcon name="group"/>加入讨论组</button>}
-              <button type="button" onClick={() => props.onSplit('x')} aria-label={`左右分割终端 ${props.number}`}><UiIcon name="splitX"/>左右分割</button>
-              <button type="button" onClick={() => props.onSplit('y')} aria-label={`上下分割终端 ${props.number}`}><UiIcon name="splitY"/>上下分割</button>
+              <button type="button" onClick={() => splitFromMenu('x')} aria-label={`左右分割终端 ${props.number}`}><UiIcon name="splitX"/>左右分割</button>
+              <button type="button" onClick={() => splitFromMenu('y')} aria-label={`上下分割终端 ${props.number}`}><UiIcon name="splitY"/>上下分割</button>
             </div>
           </details>
           <button className="dt-pane-action" onClick={props.onZoom} title={props.zoomed ? '还原布局' : '放大此窗格'}
             aria-label={props.zoomed ? '还原布局' : `放大终端 ${props.number}`}><UiIcon name={props.zoomed ? 'collapse' : 'expand'}/></button>
           {props.onHide && <button className="dt-pane-action" onClick={props.onHide} title="收起，任务继续"
             aria-label={`收起终端 ${props.number}`}><UiIcon name="minimize"/></button>}
-          <button className="dt-pane-action dt-close" onClick={() => setConfirmClose(true)} disabled={closeDisabled}
+          <button ref={closeButtonRef} className="dt-pane-action dt-close" onClick={() => setConfirmClose(true)} disabled={closeDisabled}
             title={settled ? '移除已结束的任务' : remoteCleanupAllowed ? '结束远端任务' : owned ? '结束任务' : '接管后可结束任务'} aria-label={`结束终端 ${props.number} 的任务`}><UiIcon name="close"/></button>
         </div>
       </header>
@@ -563,11 +583,17 @@ export function TerminalPane(props: Props) {
           <span>{remote ? `SSH · ${props.terminal.execution.label}` : '本机'}</span><code>{props.terminal.execution.cwd}</code>
         </div>}
       </div>
-      {confirmClose && <div className="dt-pane-confirm" role="alertdialog" aria-label="确认结束任务">
-        <p>{settled ? '移除这个已结束的任务？' : remote ? '结束远端任务？主机上的进程将停止。' : '结束这个任务？当前运行会停止。'}</p>
-        {closeError && <p role="alert">{closeError}</p>}
-        <div>
-          <button onClick={() => setConfirmClose(false)} disabled={closing}>取消</button>
+      {confirmClose && <div className="dt-pane-confirm" role="alertdialog" aria-label="确认结束任务" aria-describedby={closeDescriptionId}
+        onKeyDown={event => {
+          if (event.key !== 'Escape' || closing) return;
+          event.preventDefault(); event.stopPropagation(); cancelClose();
+        }}>
+        <div className="dt-pane-confirm-body" id={closeDescriptionId} tabIndex={0}>
+          <p>{settled ? '移除这个已结束的任务？' : remote ? '结束远端任务？主机上的进程将停止。' : '结束这个任务？当前运行会停止。'}</p>
+          {closeError && <p role="alert">{closeError}</p>}
+        </div>
+        <div className="dt-pane-confirm-actions">
+          <button autoFocus onClick={cancelClose} disabled={closing}>取消</button>
           <button className="dt-danger" onClick={() => { if (!remote) setConfirmClose(false); void close(); }}
             disabled={closeDisabled}>{closing ? '正在结束…' : closeError ? '重试结束' : settled ? '移除任务' : '结束任务'}</button>
         </div>

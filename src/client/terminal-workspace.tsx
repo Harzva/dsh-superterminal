@@ -268,6 +268,10 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const selectedExecution = selectedTerminal?.execution;
   const selectedCwd = selectedExecution?.cwd || cwd;
   const running = terminals.filter(item => item.state === 'running').length;
+  const managerDestination = !slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item, index) => !item && !opening[index]);
+  const launchDisabledReason = listError ? '终端连接正在恢复，恢复后即可启动。'
+    : loading ? '正在读取终端状态…'
+    : managerDestination < 0 ? '终端位置已满，请先结束一个任务或等待启动完成。' : undefined;
   const openHandoff = (section: 'form' | 'records' = 'form') => {
     const source = slots[selectedSlot];
     setHandoffSource(source ? {id:source.id, launcher:source.launcher, execution:source.execution, title:records[selectedSlot]?.title} : undefined);
@@ -324,7 +328,17 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
   const visibleSlots = leafSlots(layout);
   const hiddenTerminals = slots.flatMap((terminal, index) => terminal && !visibleSlots.includes(index) ? [{ terminal, index }] : []);
-  const terminalNavigation = compact ? slots.flatMap((terminal, index) => terminal && index !== selectedSlot ? [{terminal, index}] : []) : hiddenTerminals;
+  const showTerminalSwitcher = compact || Boolean(zoomed);
+  const terminalNavigation = showTerminalSwitcher ? slots.flatMap((terminal, index) => terminal ? [{terminal, index}] : []) : hiddenTerminals;
+  const navigationRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const strip = navigationRef.current;
+    const selected = strip?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!strip || !selected) return;
+    const rect = selected.getBoundingClientRect(), bounds = strip.getBoundingClientRect();
+    if (rect.left < bounds.left) strip.scrollLeft -= bounds.left - rect.left;
+    else if (rect.right > bounds.right) strip.scrollLeft += rect.right - bounds.right;
+  }, [selectedSlot, compact, zoomed, terminalNavigation.length, viewportSize.width]);
   const zoomedIndex = slots.findIndex(item => item?.id === zoomed);
   const geometry = useMemo(() => layoutGeometry(zoomedIndex >= 0 ? { slot: zoomedIndex } : layout,
     viewportSize.width, viewportSize.height), [layout, zoomedIndex, viewportSize]);
@@ -342,7 +356,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       const top = rect.y < viewport.scrollTop ? rect.y : rect.y + rect.height > viewport.scrollTop + viewport.clientHeight ? rect.y + rect.height - viewport.clientHeight : viewport.scrollTop;
       viewport.scrollTo({left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto'});
       const pane = canvasRef.current?.querySelector<HTMLElement>(`[data-slot-index="${index}"]`);
-      const input = pane?.querySelector<HTMLTextAreaElement>('.dt-pane-natural[aria-hidden="false"] textarea:not(:disabled), .dt-pane-native[aria-hidden="false"] .xterm-helper-textarea');
+      const input = pane?.querySelector<HTMLElement>('.dt-pane-natural[aria-hidden="false"] textarea:not(:disabled), .dt-pane-native[aria-hidden="false"] .xterm-helper-textarea, .dt-natural-start:not(:disabled), .dt-empty-invite:not(:disabled), .dt-restore-card button:not(:disabled)');
       input?.focus({preventScroll: true});
       revealSlotRef.current = null;
     });
@@ -375,16 +389,22 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     setZoomed(null);
     setSelectedSlot(added);
     setFocused(slots[added]?.id ?? null);
+    revealSlotRef.current = added;
+    setRevealRequest(value => value + 1);
     setActionError('');
   };
 
-  const showSlot = (index: number) => {
+  const showSlot = (index: number, preserveZoom = false) => {
     setAuxiliary(null);
     setToolsOpened(false);
     revealSlotRef.current = index;
     setRevealRequest(value => value + 1);
-    if (!visibleSlots.includes(index)) setLayout(previous => previous ? splitSlot(previous, visibleSlots[0], index, 'x') : {slot:index});
-    setPreset('custom'); setSelectedSlot(index); setFocused(slots[index]?.id ?? null); setZoomed(null);
+    if (!visibleSlots.includes(index)) {
+      setLayout(previous => previous ? splitSlot(previous, visibleSlots[0], index, 'x') : {slot:index});
+      setPreset('custom');
+    }
+    setSelectedSlot(index); setFocused(slots[index]?.id ?? null);
+    setZoomed(preserveZoom && zoomed ? slots[index]?.id ?? null : null);
   };
   const newTerminal = () => {
     const free = slots.findIndex((item,i) => !item && !opening[i] && !records[i]);
@@ -461,9 +481,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     const occupied: Record<number, Rect> = Object.fromEntries(Object.entries(allGeometry.panes).filter(([index]) => slots[Number(index)]));
     const index = neighborSlot(occupied, selectedSlot, direction);
     if (index !== null && slots[index]) {
-      setSelectedSlot(index);
-      setFocused(slots[index]!.id);
-      if (zoomed) setZoomed(slots[index]!.id);
+      showSlot(index, Boolean(zoomed));
     }
   };
 
@@ -535,11 +553,19 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       </div>
       <HandoffSummary tasks={handoffs.tasks} onOpen={() => openHandoff('records')}/>
       </div>
-      {terminalNavigation.length > 0 && <div className="dt-hidden-panes" aria-label="切换终端"><span>{compact ? '切换终端' : '已收起 · 进程保留'}</span>{terminalNavigation.map(({terminal, index}) =>
-        <button key={terminal.id} onClick={() => showSlot(index)} title={`切换到终端 ${index + 1}`}>
-          {String(index + 1).padStart(2, '0')} {records[index]?.title || terminal.launcher}</button>)}
-        {!compact && <button onClick={() => selectPreset(slots.filter(Boolean).length <= 2 ? 'horizontal' : slots.filter(Boolean).length <= 3 ? 'main' : slots.filter(Boolean).length <= 6 ? 'six' : 'twelve')}>显示全部</button>}
-      </div>}
+      {terminalNavigation.length > 0 && (!showTerminalSwitcher || terminalNavigation.length > 1 || hiddenTerminals.length > 0) &&
+        <div className="dt-terminal-navigation">
+          {!showTerminalSwitcher && <span className="dt-navigation-label">已收起</span>}
+          <div className="dt-terminal-switcher" ref={navigationRef} role="group" aria-label="切换终端">
+            {terminalNavigation.map(({terminal, index}) => <button key={terminal.id} type="button"
+              aria-pressed={selectedSlot === index} aria-label={`切换到终端 ${index + 1}：${records[index]?.title || terminal.launcher}`}
+              onClick={() => showSlot(index, showTerminalSwitcher)} title={`${records[index]?.title || terminal.launcher} · 终端 ${index + 1}`}>
+              <AgentIcon launcher={terminal.launcher}/><span className="dt-navigation-number">{String(index + 1).padStart(2, '0')}</span>
+              <span className="dt-navigation-title">{records[index]?.title || terminal.launcher}</span>
+            </button>)}
+          </div>
+          {!showTerminalSwitcher && <button className="dt-navigation-all" onClick={() => selectPreset(terminals.length <= 2 ? 'horizontal' : terminals.length <= 3 ? 'main' : terminals.length <= 6 ? 'six' : 'twelve')}>显示全部</button>}
+        </div>}
       {(showGroups || groupDragging) && <div className="dt-group-strip" aria-label="终端讨论组">
         {groups.groups.map(group => <button type="button" key={group.id}
           className={`${showGroups && groups.selectedId === group.id ? 'is-selected' : ''}${groupDropTarget === group.id ? ' is-drop-target' : ''}`}
@@ -566,9 +592,9 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         opened={showHandoff} openAt={handoffOpenAt} seed={handoffSeed} onClose={closeAuxiliary} refresh={handoffs.refresh}
         onShowTerminal={id => { const index = slots.findIndex(item => item?.id === id); if (index < 0) return false; showSlot(index); return true; }}
         onShowConversation={onShowConversation}/>
-      {showManager && <AgentManager bridge={bridge} destination={(!slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item,i)=>!item && !opening[i])) + 1} onClose={closeAuxiliary} onLaunch={id => {
-        const index = !slots[selectedSlot] && !opening[selectedSlot] ? selectedSlot : slots.findIndex((item, i) => !item && !opening[i]);
-        if (index < 0) { setActionError('已打开 12 个终端，请先结束一个任务。'); return; }
+      {showManager && <AgentManager bridge={bridge} destination={managerDestination + 1} launchDisabledReason={launchDisabledReason} onClose={closeAuxiliary} onLaunch={id => {
+        const index = managerDestination;
+        if (launchDisabledReason || index < 0) return;
         showSlot(index); setAuxiliary(null); void open(index, id);
       }} />}
       {showSmart && <SmartAssistant bridge={bridge} sessionId={sessionId} conversationTitle={conversationTitle} contextLabel={contextLabel} connected={!listError} seed={assistantSeed} onClose={closeAuxiliary}
