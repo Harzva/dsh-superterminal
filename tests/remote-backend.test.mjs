@@ -47,11 +47,15 @@ async function fixture(t, { mode = 'danger-full-access' } = {}) {
       } else if (script.includes(': > "$base/closed"')) {
         if (f.closeFails) exitCode = 255
         else { closed.add(args[0]); sessions.delete(args[0]); stdout = `${args[1]}\0` }
+      } else if (script.includes('receipt="$base/attach-$marker"')) {
+        if (f.readyFails) exitCode = 79
+        else stdout = `${f.wrongReadyToken ?? args[1]}\0${f.readyStatus ?? 'ready'}\0`
       } else throw new Error('unexpected control protocol')
       const handle = { done: done.promise, collected: { stdout: { readFrom: () => ({ text: stdout, lossy: false }) } },
         terminate() {}, async waitForExit() { return !f.cleanupFails } }
-      if (f.controlGate) {
-        void f.controlGate.then(() => done.resolve({ exitCode, signal: null }))
+      const gate = script.includes('receipt="$base/attach-$marker"') ? f.readyGate : f.controlGate
+      if (gate) {
+        void gate.then(() => done.resolve({ exitCode, signal: null }))
         spec.signal.addEventListener('abort', () => done.resolve({ exitCode: 255, signal: 'SIGTERM' }), { once: true })
       } else done.resolve({ exitCode, signal: null })
       return handle
@@ -214,6 +218,92 @@ test('remote process completion comes only from the attach protocol, not output 
   assert.equal(f.service.entry(f.owner, terminal.id).state, 'exited')
   assert.equal(f.service.summary(f.service.entry(f.owner, terminal.id)).exitCode, null)
   await assert.rejects(f.service.remoteReconnect(f.owner, { terminalId: terminal.id, requestId: 'ended' }))
+  await f.service.close(f.owner, { terminalId: terminal.id, lease: 'dismiss-exited' })
+})
+
+test('open and reconnect remain unwritable until this attachment confirms readiness', async t => {
+  const f = await fixture(t), firstGate = Promise.withResolvers()
+  f.readyGate = firstGate.promise
+  let resolved = false
+  const opening = open(f).then(value => { resolved = true; return value })
+  while (!f.controls.some(spec => protocol(spec.argv).script.includes('receipt="$base/attach-$marker"'))) await tick()
+  const entry = [...f.service.owners.get(f.owner).entries.values()][0]
+  assert.equal(entry.state, 'starting'); assert.equal(resolved, false)
+  f.handles[0].output.write('screen while connecting\n'); await tick()
+  assert.equal((await f.service.read(f.owner, { terminalId: entry.id, offset: 0 })).data, 'screen while connecting\n')
+  await assert.rejects(f.service.claim(f.owner, { terminalId: entry.id, viewerId: 'early' }), /未在运行/)
+  await assert.rejects(f.service.write(f.owner, { terminalId: entry.id, lease: 'early', sequence: 0, data: 'do not queue' }), /未在运行/)
+  firstGate.resolve(); const terminal = await opening, writer = await claim(f, terminal)
+  await f.service.write(f.owner, { terminalId: terminal.id, lease: writer.lease, sequence: 0, data: 'first command' })
+  assert.deepEqual(f.handles[0].writes, ['first command'])
+  f.handles[0].finish(255); await tick()
+  const secondGate = Promise.withResolvers(); f.readyGate = secondGate.promise
+  const reconnecting = f.service.remoteReconnect(f.owner, { terminalId: terminal.id, requestId: 'delayed-reconnect' })
+  while (f.handles.length < 2) await tick()
+  assert.equal(entry.state, 'reconnecting')
+  await assert.rejects(f.service.write(f.owner, { terminalId: terminal.id, lease: writer.lease, sequence: 1, data: 'never replay' }), /未在运行/)
+  secondGate.resolve(); assert.equal((await reconnecting).state, 'running')
+  assert.deepEqual(f.handles[1].writes, [])
+  const probes = f.controls.map(spec => protocol(spec.argv)).filter(item => item.script.includes('receipt="$base/attach-$marker"'))
+  assert.notEqual(probes[0].args[1], probes[1].args[1])
+})
+
+test('wrong or timed-out attach readiness cannot enable input; reconnect retries without re-execution', async t => {
+  const f = await fixture(t)
+  f.wrongReadyToken = 'previous-attachment'
+  await assert.rejects(open(f))
+  assert.equal(f.handles[0].terminated, true); assert.equal(f.sessions.size, 0)
+  f.wrongReadyToken = undefined
+  const terminal = await open(f, { requestId: 'second-open' })
+  f.handles.at(-1).finish(255); await tick()
+  f.readyFails = true
+  const request = { terminalId: terminal.id, requestId: 'retry-ready' }
+  await assert.rejects(f.service.remoteReconnect(f.owner, request))
+  assert.equal(f.service.entry(f.owner, terminal.id).state, 'disconnected')
+  assert.equal(f.handles.at(-1).terminated, true)
+  assert.equal(f.sessions.size, 1)
+  f.readyFails = false
+  assert.equal((await f.service.remoteReconnect(f.owner, request)).state, 'running')
+  assert.deepEqual(f.handles.at(-1).writes, [])
+  assert.equal(f.controls.filter(spec => protocol(spec.argv).script.includes('new-session -d')).length, 2)
+})
+
+test('transport loss during readiness rejects open and closes only its owned task', async t => {
+  const f = await fixture(t), gate = Promise.withResolvers()
+  f.readyGate = gate.promise
+  const pending = open(f), rejected = assert.rejects(pending)
+  while (!f.controls.some(spec => protocol(spec.argv).script.includes('receipt="$base/attach-$marker"'))) await tick()
+  f.handles[0].finish(255)
+  await rejected
+  assert.equal(f.sessions.size, 0)
+  assert.equal(f.handles[0].terminated, true)
+  gate.resolve()
+})
+
+test('owner disposal during readiness cancels the control and closes the same attachment receipt', async t => {
+  const f = await fixture(t), gate = Promise.withResolvers()
+  f.readyGate = gate.promise
+  const pending = open(f), rejected = assert.rejects(pending)
+  while (!f.controls.some(spec => protocol(spec.argv).script.includes('receipt="$base/attach-$marker"'))) await tick()
+  const readiness = f.controls.map(spec => protocol(spec.argv)).find(item => item.script.includes('receipt="$base/attach-$marker"'))
+  await f.service.disposeOwner(f.owner, f.service.owners.get(f.owner)); await rejected
+  assert.equal(f.handles[0].terminated, true); assert.equal(f.sessions.size, 0)
+  assert.equal(f.service.owners.has(f.owner), false)
+  const cleanup = f.controls.map(spec => protocol(spec.argv)).find(item => item.script.includes(': > "$base/closed"'))
+  assert.equal(cleanup.args[0], readiness.args[0])
+  assert.ok(cleanup.args.slice(3).includes(readiness.args[1]))
+  gate.resolve()
+})
+
+test('a task that exits before readiness returns its final screen and exited state', async t => {
+  const f = await fixture(t), gate = Promise.withResolvers()
+  f.readyGate = gate.promise; f.readyStatus = 'exited'
+  const pending = open(f)
+  while (!f.controls.some(spec => protocol(spec.argv).script.includes('receipt="$base/attach-$marker"'))) await tick()
+  f.handles[0].output.write('early task error\n'); f.handles[0].finish(200)
+  gate.resolve(); const terminal = await pending
+  assert.equal(terminal.state, 'exited')
+  assert.equal((await f.service.read(f.owner, { terminalId: terminal.id, offset: 0 })).data, 'early task error\n')
   await f.service.close(f.owner, { terminalId: terminal.id, lease: 'dismiss-exited' })
 })
 

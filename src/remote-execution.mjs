@@ -126,19 +126,35 @@ printf '%s\\000%s\\000' "$marker" "$(pwd -P)"`
 const ATTACH = `${BASE}
 [ -d "$base" ] && [ ! -f "$base/closed" ] || exit 76
 base=$(cd "$base" && pwd -P); socket="$base/socket"
+receipt="$base/attach-$marker"
+trap 'rm -f "$receipt"' EXIT
 tmux -u -S "$socket" has-session -t "=$session" 2>/dev/null || exit 77
 if [ "$(tmux -u -S "$socket" display-message -p -t "$session:0.0" '#{pane_dead}')" = 1 ]; then
   printf '\\033[H\\033[2J'
   tmux -u -S "$socket" capture-pane -p -e -t "$session:0.0" -S -200
   exit 200
 fi
-tmux -u -S "$socket" attach-session -t "=$session" || :
+# The attach command opens the client tty (including its raw-mode input flush)
+# before the next command runs. A receipt from this exact client queue avoids
+# accepting input while OpenSSH/tmux are still starting, or trusting PTY text.
+tmux -u -S "$socket" attach-session -t "=$session" \\; run-shell "umask 077; test ! -f '$base/closed' && : > '$receipt'" || :
 if [ "$(tmux -u -S "$socket" display-message -p -t "$session:0.0" '#{pane_dead}' 2>/dev/null)" = 1 ]; then
   printf '\\033[H\\033[2J'
   tmux -u -S "$socket" capture-pane -p -e -t "$session:0.0" -S -200
   exit 200
 fi
 exit 0`
+const ATTACH_READY = `${BASE}
+receipt="$base/attach-$marker"
+count=0
+while :; do
+  [ -d "$base" ] && [ ! -f "$base/closed" ] || exit 76
+  dead=$(tmux -u -S "$socket" display-message -p -t "$session:0.0" '#{pane_dead}' 2>/dev/null) || exit 77
+  if [ "$dead" = 1 ]; then printf '%s\\000exited\\000' "$marker"; exit 0; fi
+  if [ -f "$receipt" ] && [ ! -L "$receipt" ]; then printf '%s\\000ready\\000' "$marker"; exit 0; fi
+  count=$((count + 1)); [ "$count" -lt 100 ] || exit 79
+  sleep 0.1
+done`
 const CLOSE = `${BASE}
 known=$3
 private_base
@@ -162,6 +178,8 @@ fi
 rmdir "$base/lock"
 trap - EXIT HUP INT TERM
 rm -f "$base/ready"
+shift 3
+for attachment do rm -f "$base/attach-$attachment"; done
 if [ "$known" = yes ] && [ ! -S "$socket" ]; then rm -f "$base/closed"; rmdir "$base" 2>/dev/null || :; fi
 printf '%s\\000' "$marker"`
 
@@ -304,7 +322,10 @@ export class RemoteExecution {
     await this.verifyConnection(entry.remote)
     this.policy(owner); signal?.throwIfAborted()
     if (entry.remote.closed) throw new RemoteExecutionError('这个远程终端已关闭。')
-    const sshArgv = this.argv(entry.remote, ATTACH, [entry.remote.namespace, randomUUID()], true)
+    const attachment = randomUUID()
+    entry.remote.attachments ??= []
+    entry.remote.attachments.push(attachment)
+    const sshArgv = this.argv(entry.remote, ATTACH, [entry.remote.namespace, attachment], true)
     const handle = await this.terminals.ctx.subprocess.spawnTerminal({ argv: [entry.remote.shell, '-c',
       'export TERM=xterm-256color COLORTERM=truecolor; exec "$@"', 'dsh-remote-transport', ...sshArgv],
       cwd: this.home, env: { TERM: 'xterm-256color', COLORTERM: 'truecolor' }, rows: entry.rows, cols: entry.cols, graceMs: 600, signal })
@@ -314,6 +335,23 @@ export class RemoteExecution {
     entry.transportCleanup = undefined
     this.policy(owner); signal?.throwIfAborted()
     entry.handle = this.terminals.ptyCompatibility.adaptHandle(handle)
+    this.terminals.watchRemote(entry, false)
+    const readiness = new AbortController()
+    // A dead remote task still needs its final screen captured by ATTACH. A
+    // broken transport cancels the readiness check instead of enabling input.
+    void entry.handle.done.then(outcome => { if (outcome.exitCode !== 200) readiness.abort() }, () => readiness.abort())
+    const combined = AbortSignal.any([readiness.signal, ...(signal ? [signal] : [])])
+    const result = await this.control(owner, entry.remote, ATTACH_READY, [entry.remote.namespace, attachment], combined)
+    this.policy(owner); signal?.throwIfAborted()
+    if (result === `${attachment}\0exited\0`) {
+      await Promise.race([entry.completion, new Promise((_, reject) => {
+        const timeout = setTimeout(() => reject(new RemoteExecutionError(reason)), 10000)
+        void entry.completion.finally(() => clearTimeout(timeout)).catch(() => {})
+      })])
+      if (entry.state !== 'exited') throw new RemoteExecutionError(reason)
+    } else if (result === `${attachment}\0ready\0` && ['starting', 'reconnecting', 'exited'].includes(entry.state)) {
+      if (entry.state !== 'exited') entry.state = 'running'
+    } else throw new RemoteExecutionError(reason)
     return entry.handle
   }
   async close(entry) {
@@ -321,7 +359,7 @@ export class RemoteExecution {
     if (!remote?.attempted || remote.closed) return
     await this.verifyConnection(remote)
     const marker = randomUUID()
-    const output = await this.control(remote.owner, remote, CLOSE, [remote.namespace, marker, remote.created ? 'yes' : 'no'], undefined, true)
+    const output = await this.control(remote.owner, remote, CLOSE, [remote.namespace, marker, remote.created ? 'yes' : 'no', ...remote.attachments ?? []], undefined, true)
     if (!output.endsWith(`${marker}\0`)) throw new RemoteExecutionError('远程任务关闭结果未确认，请重试关闭。')
     remote.closed = true
   }

@@ -163,7 +163,6 @@ export class NativeTerminals {
         await entry.transportCleanup
         combined.throwIfAborted(); this.current(owner)
         await this.remoteExecution.attach(owner, entry, combined)
-        this.watchRemote(entry)
         return this.summary(entry)
       } catch (error) {
         if (entry.handle) await this.disconnectRemote(entry, entry.handle)
@@ -345,7 +344,6 @@ export class NativeTerminals {
       signal.throwIfAborted()
       if (entry.remoteRequest) {
         await this.remoteExecution.create(owner, entry, entry.remoteRequest, signal)
-        this.watchRemote(entry)
         return this.summary(entry)
       }
       const launch = Object.hasOwn(launchers, entry.launcher) ? launchers[entry.launcher] : { command: entry.launcher, args: [] }
@@ -417,10 +415,10 @@ export class NativeTerminals {
     }
   }
 
-  watchRemote(entry) {
+  watchRemote(entry, ready = true) {
     const handle = entry.handle
     entry.transportCleanup = undefined
-    entry.state = 'running'
+    if (ready) entry.state = 'running'
     entry.lease = null; entry.writer = null
     entry.consume = this.consume(entry, handle)
     entry.completion = handle.done.then(outcome => this.disconnectRemote(entry, handle, outcome), () => this.disconnectRemote(entry, handle))
