@@ -2,9 +2,11 @@ import { TERMINAL_THEMES, type TerminalThemeName } from './terminal-theme.mjs';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { AgentIcon } from './agent-icon';
+import { UiIcon } from './ui-icon';
 import { FitAddon } from '@xterm/addon-fit';
 import { ShellCommandHistory } from './shell-command-history';
 import naturalCss from './terminal-run-panel.css';
+import paneCss from './terminal-pane-polish.css';
 import type { TerminalBridge, TerminalSummary } from './types';
 
 type Props = {
@@ -117,6 +119,13 @@ export function TerminalPane(props: Props) {
     setLocalTitle(value);
     props.onTitleChange?.(value);
     setEditingTitle(false);
+  };
+
+  const focusNativeTerminal = () => {
+    const active = document.activeElement;
+    if (active instanceof Element && paneRef.current?.contains(active) &&
+      active.matches('button,select,summary,input:not(.xterm-helper-textarea),textarea:not(.xterm-helper-textarea),[contenteditable="true"]')) return;
+    terminalRef.current?.focus();
   };
 
   useEffect(() => { setDraftCopy('idle'); }, [props.draft?.id, props.draft?.text]);
@@ -248,7 +257,7 @@ export function TerminalPane(props: Props) {
       setControlError('');
       updateStdin();
       scheduleResize();
-      if (nativeVisible(propsRef.current) && propsRef.current.focused) terminalRef.current?.focus();
+      if (nativeVisible(propsRef.current) && propsRef.current.focused) focusNativeTerminal();
     } catch (error) {
       if (mountedRef.current && generation === controlGeneration.current) {
         setControlError('暂时无法接管，可继续查看终端。请稍后重试。');
@@ -466,7 +475,7 @@ export function TerminalPane(props: Props) {
   useEffect(() => {
     if (terminalVisible) {
       scheduleResize();
-      if (props.focused && ready) terminalRef.current?.focus();
+      if (props.focused && ready) focusNativeTerminal();
     } else {
       terminalRef.current?.blur();
     }
@@ -483,7 +492,7 @@ export function TerminalPane(props: Props) {
   const remoteCleanupAllowed = remote && (state === 'disconnected' || state === 'cleanup-error' && Boolean(closeError));
   const closeDisabled = (!owned && !settled && !remoteCleanupAllowed) || closing || claiming || reconnectPending || !props.connected;
   return (
-    <section ref={paneRef} className={`dt-pane${props.focused ? ' is-focused' : ''}${bell ? ' has-bell' : ''}`}
+    <section ref={paneRef} className={`dt-pane dt-terminal-pane${props.focused ? ' is-focused' : ''}${bell ? ' has-bell' : ''}`}
       aria-label={`终端 ${props.number} ${props.terminal.launcher}`} onPointerDown={props.onFocus}
       onPointerUp={event => {
         if (!terminalVisible || !terminalRef.current?.getSelection()) return;
@@ -492,6 +501,7 @@ export function TerminalPane(props: Props) {
       }}
       onFocusCapture={props.onFocus}>
       <style>{naturalCss}</style>
+      <style>{paneCss}</style>
       <header className="dt-pane-bar" draggable={Boolean(props.onGroupDragStart) && !editingTitle}
         onDragStart={event => {
           const target = event.target as HTMLElement;
@@ -506,36 +516,55 @@ export function TerminalPane(props: Props) {
           onBlur={commitTitle}
           onKeyDown={event => {
             event.stopPropagation();
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
             if (event.key === 'Enter') { event.preventDefault(); commitTitle(); }
             if (event.key === 'Escape') { event.preventDefault(); setEditingTitle(false); }
           }} /> : <button className="dt-pane-title" draggable={Boolean(props.onGroupDragStart)} title={`${props.terminal.launcher} · 点击命名任务`}
           aria-label={`重命名终端 ${props.number}`} onClick={() => { setTitleDraft(title); setEditingTitle(true); }}>
           {title || props.terminal.launcher}</button>}
-        <span className={`dt-state dt-state-${state}`}>{props.connected ? stateLabel(state, exitCode) : '连接中断'}</span>
+        <span className={`dt-state dt-pane-state dt-state-${state}${props.connected ? '' : ' is-offline'}`} title={props.connected ? stateLabel(state, exitCode) : '连接中断'}>
+          <i aria-hidden="true"/><span>{props.connected ? stateLabel(state, exitCode) : '连接中断'}</span></span>
         {bell && <button className="dt-bell" onClick={() => setBell(false)} title="清除终端响铃标记">终端响铃 ×</button>}
         <span className="dt-pane-spacer" />
-        {props.onAddToGroup && <button type="button" className="dt-icon-button dt-pane-group" draggable={Boolean(props.onGroupDragStart)} onClick={props.onAddToGroup}
-          aria-label={`将终端 ${props.number} 加入讨论组`} title="加入讨论组，也可拖动标题到组名">◎</button>}
-        <button className="dt-split-button" onClick={() => props.onSplit('x')} title="左右分割，添加空窗格"
-          aria-label={`左右分割终端 ${props.number}`}>◫</button>
-        <button className="dt-split-button" onClick={() => props.onSplit('y')} title="上下分割，添加空窗格"
-          aria-label={`上下分割终端 ${props.number}`}><span className="dt-split-vertical">◫</span></button>
-        <button className="dt-icon-button" onClick={props.onZoom} title={props.zoomed ? '还原布局' : '放大此窗格'}
-          aria-label={props.zoomed ? '还原布局' : `放大终端 ${props.number}`}>{props.zoomed ? '↙' : '⤢'}</button>
-        {props.onHide && <button className="dt-icon-button" onClick={props.onHide} title="收起终端，任务继续运行"
-          aria-label={`收起终端 ${props.number}`}>−</button>}
-        <button className="dt-icon-button dt-close" onClick={() => setConfirmClose(true)} disabled={closeDisabled}
-          title={settled ? '移除已结束的任务' : remoteCleanupAllowed ? '直接结束远端任务，无需恢复终端连接' : owned ? '结束任务' : '接管后可结束任务'} aria-label={`结束终端 ${props.number} 的任务`}>×</button>
+        <div className="dt-pane-actions">
+          <details className="dt-pane-menu" onBlur={event => {
+            if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+          }} onKeyDown={event => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault(); event.stopPropagation(); event.currentTarget.open = false;
+            event.currentTarget.querySelector<HTMLElement>('summary')?.focus();
+          }}>
+            <summary aria-label={`终端 ${props.number} 更多操作`} title="更多操作"><UiIcon name="more"/></summary>
+            <div className="dt-pane-menu-items" role="group" aria-label={`终端 ${props.number} 操作`} onClick={event => {
+              if ((event.target as HTMLElement).closest('button')) event.currentTarget.closest('details')?.removeAttribute('open');
+            }}>
+              {props.onAddToGroup && <button type="button" className="dt-pane-group" onClick={props.onAddToGroup}
+                aria-label={`将终端 ${props.number} 加入讨论组`}><UiIcon name="group"/>加入讨论组</button>}
+              <button type="button" onClick={() => props.onSplit('x')} aria-label={`左右分割终端 ${props.number}`}><UiIcon name="splitX"/>左右分割</button>
+              <button type="button" onClick={() => props.onSplit('y')} aria-label={`上下分割终端 ${props.number}`}><UiIcon name="splitY"/>上下分割</button>
+            </div>
+          </details>
+          <button className="dt-pane-action" onClick={props.onZoom} title={props.zoomed ? '还原布局' : '放大此窗格'}
+            aria-label={props.zoomed ? '还原布局' : `放大终端 ${props.number}`}><UiIcon name={props.zoomed ? 'collapse' : 'expand'}/></button>
+          {props.onHide && <button className="dt-pane-action" onClick={props.onHide} title="收起，任务继续"
+            aria-label={`收起终端 ${props.number}`}><UiIcon name="minimize"/></button>}
+          <button className="dt-pane-action dt-close" onClick={() => setConfirmClose(true)} disabled={closeDisabled}
+            title={settled ? '移除已结束的任务' : remoteCleanupAllowed ? '结束远端任务' : owned ? '结束任务' : '接管后可结束任务'} aria-label={`结束终端 ${props.number} 的任务`}><UiIcon name="close"/></button>
+        </div>
       </header>
-      {props.terminal.execution && <div className="dt-remote-location" title={`${props.terminal.execution!.label} · ${props.terminal.execution!.cwd}`}><span>{remote ? `SSH · ${props.terminal.execution!.label}` : '本机'}</span><code>{props.terminal.execution!.cwd}</code></div>}
-      {props.naturalContent != null && <div className="dt-pane-modes" role="group" aria-label={`终端 ${props.number} 视图`}>
-        <button type="button" className={naturalShown ? 'is-active' : ''} aria-pressed={naturalShown}
-          disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(true)}>AI 任务</button>
-        <button type="button" className={!naturalShown ? 'is-active' : ''} aria-pressed={!naturalShown}
-          disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(false)}>终端</button>
-      </div>}
+      <div className="dt-pane-subbar">
+        {props.naturalContent != null && <div className="dt-pane-modes" role="group" aria-label={`终端 ${props.number} 视图`}>
+          <button type="button" className={naturalShown ? 'is-active' : ''} aria-pressed={naturalShown}
+            disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(true)}><UiIcon name="sparkles"/>AI 任务</button>
+          <button type="button" className={!naturalShown ? 'is-active' : ''} aria-pressed={!naturalShown}
+            disabled={!props.onNaturalToggle} onClick={() => props.onNaturalToggle?.(false)}><UiIcon name="terminal"/>终端</button>
+        </div>}
+        {props.terminal.execution && <div className="dt-pane-location" title={`${props.terminal.execution.label} · ${props.terminal.execution.cwd}`}>
+          <span>{remote ? `SSH · ${props.terminal.execution.label}` : '本机'}</span><code>{props.terminal.execution.cwd}</code>
+        </div>}
+      </div>
       {confirmClose && <div className="dt-pane-confirm" role="alertdialog" aria-label="确认结束任务">
-        <p>{settled ? '移除这个已结束的任务？' : remote ? '结束这个远端任务？SSH 主机上的任务会停止。仅收起面板则会继续运行。' : '结束这个任务？当前运行会停止。'}</p>
+        <p>{settled ? '移除这个已结束的任务？' : remote ? '结束远端任务？主机上的进程将停止。' : '结束这个任务？当前运行会停止。'}</p>
         {closeError && <p role="alert">{closeError}</p>}
         <div>
           <button onClick={() => setConfirmClose(false)} disabled={closing}>取消</button>
@@ -553,7 +582,7 @@ export function TerminalPane(props: Props) {
         connected={props.connected && !readError} visible={terminalVisible} onExplain={text => props.onSelectionAction?.('explain', text)}/>}
       {selectionOpen && selectionText && props.focused && props.onSelectionAction && <div className="dt-selection-actions" role="toolbar" aria-label="对选中的终端内容使用 AI" style={selectionPosition}
         onPointerDown={event => event.preventDefault()} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Escape') setSelectionOpen(false); }}>
-        <span>终端 {String(props.number).padStart(2, '0')} · 已选 {selectionText.length} 字符</span>
+        <span>终端 {String(props.number).padStart(2, '0')} · {selectionText.length} 字符</span>
         <div>{([['execute', '直接处理'], ['explain', '解释'], ['fix', '建议修复'], ['handoff', '交给 Agent']] as const).filter(([action]) => !remote || action === 'explain' || action === 'fix').map(([action, label]) => <button key={action} onClick={() => {
           props.onSelectionAction?.(action, selectionText); setSelectionOpen(false);
         }}>{label}</button>)}<button aria-label="收起选区操作" onClick={() => setSelectionOpen(false)}>×</button></div>
@@ -574,8 +603,8 @@ export function TerminalPane(props: Props) {
       {!gap && !readError && !ready && <div className="dt-pane-notice" role="status">正在读取真实终端输出…</div>}
       {props.connected && !readError && state !== 'disconnected' && !reconnectPending && controlError && <div className="dt-pane-notice dt-danger" role="alert">{controlError}</div>}
       <footer className="dt-pane-footer">
-        <span title={props.terminal.id}>{remote ? 'SSH' : props.terminal.pid ? `PID ${props.terminal.pid}` : '等待进程'}</span>
-        <span title="终端字符列数 × 行数">{size.cols} × {size.rows}</span>
+        <span className="dt-terminal-meta" title={props.terminal.id}>{remote ? 'SSH' : props.terminal.pid ? `PID ${props.terminal.pid}` : '等待进程'}</span>
+        <span className="dt-terminal-meta" title="终端字符列数 × 行数">{size.cols} × {size.rows}</span>
         <div className="dt-font-controls" aria-label={`终端 ${props.number} 字号`}>
           <button disabled={fontSize <= 10} onClick={() => setFontSize(value => Math.max(10, value - 1))}
             aria-label={`缩小终端 ${props.number} 字号`} title="缩小字号">A−</button>
@@ -584,12 +613,12 @@ export function TerminalPane(props: Props) {
             aria-label={`放大终端 ${props.number} 字号`} title="放大字号">A+</button>
         </div>
         <button className="dt-scroll-bottom" onClick={() => terminalRef.current?.scrollToBottom()}
-          title="回到最新输出" aria-label={`终端 ${props.number} 回到底部`}>↓</button>
+          title="回到最新输出" aria-label={`终端 ${props.number} 回到底部`}><UiIcon name="arrowDown"/></button>
         <span className="dt-pane-spacer" />
-        {state === 'disconnected' || reconnectPending ? <span>输入暂停</span> : settled ? <span>进程已结束</span> : !props.connected || readError ? <span>输入暂停</span> : owned && !controlError ? <span className="dt-writer">可输入</span> : <button
+        {state === 'disconnected' || reconnectPending ? <span>输入暂停</span> : settled ? <span>进程已结束</span> : !props.connected || readError ? <span>输入暂停</span> : owned && !controlError ? <span className="dt-writer" title="你持有当前终端的输入控制权"><i aria-hidden="true"/>可输入</span> : <button
           className="dt-claim" disabled={claiming || closing || (state !== 'running' && state !== 'cleanup-error')} onClick={() => { void claim(); }}
           title="取得此终端的人工输入控制权">{claiming ? '接管中…' : controlError ? '重新接管' : '接管输入'}</button>}
-        <button className="dt-interrupt" disabled={!writable} onClick={() => send('\u0003')} title="向此终端发送 Ctrl-C">Ctrl-C</button>
+        <button className="dt-interrupt" disabled={!writable} onClick={() => send('\u0003')} title="中断当前程序 · Ctrl-C"><UiIcon name="stop"/><span>Ctrl C</span></button>
       </footer>
       </div>
     </section>

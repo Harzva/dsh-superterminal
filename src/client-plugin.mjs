@@ -2,7 +2,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { TYPERT_REMOTE, METHODS } from './remote.mjs'
-import { TerminalWorkspace, useTerminalTheme } from './client/index.ts'
+import { TerminalWorkspace, useTerminalTheme, UiIcon } from './client/index.ts'
 import themeCss from './client/terminal-theme.css'
 
 export const name = 'dsh-terminal-client'
@@ -50,7 +50,7 @@ function readSidePreference() {
     return { sourceSessionId: value.sourceSessionId, sessionId: value.sessionId, mode: value.mode === 'independent' ? 'independent' : 'bound' }
   } catch { return null }
 }
-function ScopeTerminal({ sessionId, invokeTerminal, active, compact, contextLabel, conversationTitle, onShowConversation, recoverSession }) {
+function ScopeTerminal({ sessionId, invokeTerminal, active, compact, contextLabel, conversationTitle, onShowConversation, recoverSession, toolbarTrailing }) {
   const recoveryAt = React.useRef(0)
   const bridge = React.useMemo(() => {
     const methods = Object.fromEntries(METHODS.map(method => [method,
@@ -69,7 +69,7 @@ function ScopeTerminal({ sessionId, invokeTerminal, active, compact, contextLabe
     return methods
   }, [sessionId, invokeTerminal, recoverSession])
   return React.createElement('div', { style: { display: active ? 'block' : 'none', height: '100%' } },
-    React.createElement(TerminalBoundary, null, React.createElement(TerminalWorkspace, { bridge, sessionId, active, compact, contextLabel, conversationTitle, onShowConversation })))
+    React.createElement(TerminalBoundary, null, React.createElement(TerminalWorkspace, { bridge, sessionId, active, compact, contextLabel, conversationTitle, onShowConversation, toolbarTrailing })))
 }
 function DockSeat({ container, onUnavailable }) {
   const seat = React.useRef(null)
@@ -164,19 +164,17 @@ function TerminalOverlay(props) {
   }
   const title = mode === 'independent' ? '独立工作台' : (sessions.byId[boundId]?.displayTitle || '当前对话')
   const ids = [...new Set([...visited, ...(activeId ? [activeId] : [])])]
+  const windowActions = React.createElement(React.Fragment,null,
+    React.createElement('select', {'aria-label':'终端关联方式',title:mode==='bound'?'跟随当前对话':'独立于当前对话',value:mode,onChange:event=>chooseMode(event.target.value),disabled:busy,className:'dt-window-mode'},
+      React.createElement('option',{value:'bound'},'关联对话'),React.createElement('option',{value:'independent'},'独立工作台')),
+    React.createElement('button',{'aria-label':expanded?'回到侧边':'展开工作台',title:expanded?'回到侧边':'展开工作台',onClick:()=>setExpanded(value=>!value)},React.createElement(UiIcon,{name:expanded?'sidebar':'expand'})),
+    React.createElement('button',{'aria-label':'工具详情',title:'工具详情',onClick:()=>{props.actions.hide();props.openDetails()}},React.createElement(UiIcon,{name:'history'})),
+    React.createElement('button',{'aria-label':'收起 Side Terminal',title:'收起，保留运行中的任务',onClick:()=>{props.actions.hide();props.closeDetails()},className:'dt-side-close'},React.createElement(UiIcon,{name:'close'})))
   const panel = React.createElement('section', { role: 'region', 'aria-label': 'Side Terminal', className:'dt-themed dt-side-terminal', 'data-dt-theme':appearance.resolved,
     style: { display: state.opened ? 'flex' : 'none', height:'100%', width:'100%',
       pointerEvents:'auto', flexDirection:'column', overflow:'hidden' } },
     React.createElement('style',null,themeCss),
-    React.createElement('header', {className:`dt-side-header${expanded ? ' is-expanded' : ''}`},
-      React.createElement('strong',null,'Side Terminal'),
-      React.createElement('select', {'aria-label':'终端关联方式',value:mode,onChange:event=>chooseMode(event.target.value),disabled:busy},
-        React.createElement('option',{value:'bound'},'绑定当前对话'),React.createElement('option',{value:'independent'},'独立工作台')),
-      React.createElement('button',{onClick:()=>setExpanded(value=>!value),style:{gridColumn:'2 / 4',gridRow:2,justifySelf:'end'}},expanded?'回到侧边':'展开工作台'),
-      React.createElement('button',{onClick:()=>{props.actions.hide();props.openDetails()},title:'返回原有的命令输出和工具详情',style:{gridColumn:1,gridRow:2,justifySelf:'start'}},'工具详情'),
-      React.createElement('button',{'aria-label':'收起 Side Terminal',title:'收起后任务继续运行',onClick:()=>{props.actions.hide();props.closeDetails()},className:'dt-side-close',style:{gridColumn:3,gridRow:1}},'×')),
-    React.createElement('div',{className:`dt-side-context${expanded ? ' is-expanded' : ''}`,title},
-      (mode==='bound'?'关联对话 · ':'不随对话切换 · ')+title),
+    !activeId && React.createElement('header', {className:'dt-side-header'},React.createElement('strong',null,'Side Terminal'),windowActions),
     error && React.createElement('div',{role:'alert',className:'dt-side-alert'},error,
       React.createElement('button',{onClick:connectIndependent,disabled:busy},'重新连接')),
     !activeId && React.createElement('div',{className:'dt-side-empty'},busy?'正在准备独立工作台…':'选择一个对话后，即可在旁边开始工作。'),
@@ -185,7 +183,7 @@ function TerminalOverlay(props) {
       onShowConversation:props.isAvailable(id) ? () => {
         try { props.openConversation(id); props.actions.hide() } catch { setError('原对话暂时无法打开，协作结果已保留。') }
       } : undefined,
-      recoverSession:id===independent?recoverSession:undefined}))))
+      recoverSession:id===independent?recoverSession:undefined,toolbarTrailing:windowActions}))))
   return React.createElement(React.Fragment, null,
     React.createElement('div', {ref:floatingSeat,className:'dt-themed dt-side-floating','data-dt-theme':appearance.resolved,style:{display:state.opened && !docked?'block':'none',position:'fixed',top:8,right:8,bottom:8,
       width:expanded?'calc(100vw - 16px)':'min(720px, calc(100vw - 24px))',zIndex:100,pointerEvents:'auto',borderRadius:12,overflow:'hidden'}}),

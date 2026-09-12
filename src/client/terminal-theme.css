@@ -1,14 +1,14 @@
 .dt-themed {
-  --dt-bg: #f6f7f3;
+  --dt-bg: #f4f5f2;
   --dt-panel: #fdfcf9;
   --dt-surface: #ffffff;
   --dt-subtle: #f0f3ef;
   --dt-hover: #e9efea;
-  --dt-border: #d7e0d8;
-  --dt-border-subtle: #e5eae3;
+  --dt-border: #dfe3dc;
+  --dt-border-subtle: #e9ebe5;
   --dt-border-strong: #b3c4b9;
-  --dt-text: #263731;
-  --dt-secondary: #485d53;
+  --dt-text: #262e29;
+  --dt-secondary: #526057;
   --dt-muted: #66796e;
   --dt-faint: #75867a;
   --dt-accent: #176f5b;

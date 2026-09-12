@@ -5,6 +5,7 @@ import React, { Component, useCallback, useEffect, useMemo, useRef, useState } f
 import { loadWorkspaceMemory, saveWorkspaceMemory } from './workspace-memory.mjs';
 import { AgentManager, SmartAssistant } from './agent-manager';
 import { AgentIcon } from './agent-icon';
+import { UiIcon } from './ui-icon';
 import { assistantMemory, rememberedTerminalDrafts } from './assistant-memory';
 import type { AssistantSeed } from './assistant-memory';
 import { RemoteLauncher, REMOTE_AI_NOTICE } from './remote-launcher';
@@ -19,12 +20,13 @@ import { layoutGeometry, leafSlots, neighborSlot, pointerRatio, presetLayout, re
 import type { LayoutPreset, LayoutTree, Rect, Separator } from './layout.mjs';
 import type { TerminalBridge, TerminalLauncher, TerminalSummary } from './types';
 import workspaceCss from './terminal-workspace.css';
+import chromeCss from './workspace-chrome.css';
 import handoffCss from './handoff.css';
 import runCss from './terminal-run-panel.css';
 import groupCss from './terminal-group-panel.css';
 import xtermCss from '@xterm/xterm/css/xterm.css';
 
-export type TerminalWorkspaceProps = { bridge: TerminalBridge; sessionId: string; active?: boolean; compact?: boolean; contextLabel?: string; conversationTitle?: string; onShowConversation?(): void };
+export type TerminalWorkspaceProps = { bridge: TerminalBridge; sessionId: string; active?: boolean; compact?: boolean; contextLabel?: string; conversationTitle?: string; onShowConversation?(): void; toolbarTrailing?: React.ReactNode };
 
 function errorText(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 1200);
@@ -40,7 +42,7 @@ class PaneBoundary extends Component<{ children: React.ReactNode }, { failed: bo
   }
 }
 
-function WorkspaceSession({ bridge, sessionId, active = true, compact = false, contextLabel = '关联对话', conversationTitle = '关联对话', onShowConversation }: TerminalWorkspaceProps) {
+function WorkspaceSession({ bridge, sessionId, active = true, compact = false, contextLabel = '关联对话', conversationTitle = '关联对话', onShowConversation, toolbarTrailing }: TerminalWorkspaceProps) {
   const appearance = useTerminalTheme();
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
@@ -74,7 +76,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const toolsRef = useRef<HTMLDivElement>(null);
   const [toolsOpened, setToolsOpened] = useState(false);
   const closeAuxiliary = () => {
-    const trigger = workspaceRef.current?.querySelector<HTMLButtonElement>(`[data-auxiliary="${auxiliary}"]`)
+    const trigger = Array.from(workspaceRef.current?.querySelectorAll<HTMLButtonElement>(`[data-auxiliary="${auxiliary}"]`) ?? [])
+      .find(button => button.getClientRects().length > 0)
       ?? toolsRef.current?.querySelector<HTMLButtonElement>('.dt-tools-toggle');
     setAuxiliary(null);
     requestAnimationFrame(() => trigger?.focus());
@@ -94,6 +97,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   const groups = useTerminalGroups(bridge, active);
   const [groupSeed, setGroupSeed] = useState<{request: number; terminalId: string; groupId?: string}>();
   const [groupDropTarget, setGroupDropTarget] = useState<string | null>(null);
+  const [groupDragging, setGroupDragging] = useState(false);
   const showGroups = auxiliary === 'groups';
   const [readIssues, setReadIssues] = useState<Record<string, boolean>>({});
   const headingRef = useRef<HTMLDivElement>(null);
@@ -279,7 +283,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
     setAuxiliary('groups');
   };
   const dropTerminal = (event: React.DragEvent, groupId?: string) => {
-    event.preventDefault(); setGroupDropTarget(null);
+    event.preventDefault(); setGroupDropTarget(null); setGroupDragging(false);
     try {
       const payload = JSON.parse(event.dataTransfer.getData('application/x-dsh-terminal'));
       if (payload.sessionId !== sessionId || typeof payload.terminalId !== 'string') return;
@@ -464,21 +468,22 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
 
   return (
-    <div ref={workspaceRef} data-dt-theme={appearance.resolved} className={`dt-themed dsh-terminal-workspace${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown}>
+    <div ref={workspaceRef} data-dt-theme={appearance.resolved} className={`dt-themed dsh-terminal-workspace dt-refined${showSmart ? ' has-assistant' : ''}${compact ? ' dt-compact' : ''}`} data-session-id={sessionId} style={{'--dt-helper-top': `${helperTop}px`} as React.CSSProperties} onKeyDownCapture={onKeyDown} onDragEnd={() => {setGroupDropTarget(null);setGroupDragging(false);}}>
       <style>{themeCss}</style>
       <style>{workspaceCss}</style>
       <style>{handoffCss}</style>
       <style>{runCss}</style>
       <style>{groupCss}</style>
+      <style>{chromeCss}</style>
       <style>{xtermCss}</style>
       <div className="dt-workspace-heading" ref={headingRef}><header className="dt-workspace-bar">
-        <div className="dt-brand"><span className="dt-brand-mark">&gt;_</span><strong>DSH SuperTerminal</strong><span className="dt-brand-subtitle">WORKSPACE</span></div>
+        <div className="dt-brand"><span className="dt-brand-mark"><UiIcon name="terminal" size={21}/></span><strong>SuperTerminal</strong></div>
         <span className="dt-toolbar-spacer" />
-        <button className="dt-toolbar-button dt-new-terminal" onClick={newTerminal}>{compact ? '＋ 终端' : '＋ 新建终端'}</button>
-        <button className="dt-toolbar-button" data-auxiliary="assistant" aria-pressed={showSmart} onClick={() => setAuxiliary(value => value === 'assistant' ? null : 'assistant')}>{compact ? '解释' : '解释与建议'}</button>
-        <button className="dt-toolbar-button dt-handoff-entry" data-auxiliary="handoff" aria-expanded={showHandoff} onClick={() => showHandoff ? closeAuxiliary() : openHandoff()}>{compact ? '协作' : '交给 Agent'}</button>
-        <button className="dt-toolbar-button dt-groups-entry" data-auxiliary="groups" aria-expanded={showGroups} onClick={() => setAuxiliary(value => value === 'groups' ? null : 'groups')}>{compact ? '讨论组' : '终端讨论组'}</button>
-        <span className="dt-running-count"><i />{running} 运行 · {terminals.length} 终端</span>
+        <button className="dt-toolbar-button dt-new-terminal" onClick={newTerminal} aria-label="新建终端"><UiIcon name="plus"/><span>新建终端</span></button>
+        <button className="dt-toolbar-button" data-auxiliary="assistant" aria-label="助手" title="解释与建议" aria-pressed={showSmart} onClick={() => setAuxiliary(value => value === 'assistant' ? null : 'assistant')}><UiIcon name="sparkles"/><span>助手</span></button>
+        <button className="dt-toolbar-button dt-handoff-entry" data-auxiliary="handoff" aria-label="协作" title="交给 Agent" aria-expanded={showHandoff} onClick={() => showHandoff ? closeAuxiliary() : openHandoff()}><UiIcon name="link"/><span>协作</span></button>
+        <button className="dt-toolbar-button dt-groups-entry" data-auxiliary="groups" aria-label="讨论组" title="终端讨论组" aria-expanded={showGroups} onClick={() => setAuxiliary(value => value === 'groups' ? null : 'groups')}><UiIcon name="group"/><span>讨论组</span>{groups.groups.length > 0 && <small>{groups.groups.length}</small>}</button>
+        <span className="dt-running-count" title={`${running} 个运行中的终端，共 ${terminals.length} 个终端`}><i className={running ? 'is-running' : ''}/>{running}</span>
         <div className="dt-toolbar-tools" ref={toolsRef} onBlur={event => {
           if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) setToolsOpened(false);
         }} onKeyDown={event => {
@@ -487,8 +492,13 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           toolsRef.current?.querySelector<HTMLButtonElement>('.dt-tools-toggle')?.focus();
         }}>
         <button className="dt-toolbar-button dt-tools-toggle" aria-label="更多终端操作" aria-expanded={toolsOpened}
-          onClick={() => setToolsOpened(value => !value)}>更多 <span aria-hidden="true">⌄</span></button>
-        {toolsOpened && <div className="dt-tools-popover" role="group" aria-label="更多终端操作">
+          title="更多终端操作" onClick={() => setToolsOpened(value => !value)}><UiIcon name="more"/></button>
+        {toolsOpened && <div className="dt-tools-popover" role="group" aria-label="更多终端操作" style={{maxHeight: Math.max(120, viewportSize.height)}}>
+        <div className="dt-overflow-auxiliary">
+          <button className="dt-toolbar-button" data-auxiliary="assistant" onClick={() => {setToolsOpened(false);setAuxiliary('assistant');}}><UiIcon name="sparkles"/><span>解释与建议</span></button>
+          <button className="dt-toolbar-button" data-auxiliary="handoff" onClick={() => {setToolsOpened(false);openHandoff();}}><UiIcon name="link"/><span>交给 Agent</span></button>
+          <button className="dt-toolbar-button" data-auxiliary="groups" onClick={() => {setToolsOpened(false);setAuxiliary('groups');}}><UiIcon name="group"/><span>终端讨论组</span></button>
+        </div>
         <button className="dt-toolbar-button" aria-pressed={showManager} onClick={() => {setToolsOpened(false);setAuxiliary(value => value === 'agents' ? null : 'agents');}}>智能体管理</button>
         <button className="dt-toolbar-button" aria-pressed={showSupervisor} onClick={() => {setToolsOpened(false);setAuxiliary(value => value === 'supervisor' ? null : 'supervisor');}}>DSH Supervisor</button>
         <div className="dt-appearance">
@@ -515,18 +525,22 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         <button className="dt-toolbar-button dt-refresh-list" onClick={() => {setToolsOpened(false);void refresh(true);}} disabled={loading}>刷新终端列表</button>
         </div>}
         </div>
+        {toolbarTrailing && <div className="dt-window-actions">{toolbarTrailing}</div>}
       </header>
+      <div className="dt-context-row">
+      <div className="dt-project-identity" title={selectedCwd}><UiIcon name={selectedExecution?.kind === 'ssh' ? 'cloud' : 'folder'}/><span>{selectedExecution?.kind === 'ssh' ? selectedExecution.label : selectedCwd.split('/').filter(Boolean).at(-1) || (loading ? '读取中…' : '工作区')}</span>{selectedExecution?.kind === 'ssh' && <code>{selectedCwd}</code>}</div>
       <div className="dt-task-identity" aria-label="当前任务身份">
-        <div><span>{contextLabel}</span><button disabled={!onShowConversation} onClick={onShowConversation} title={conversationTitle}>{conversationTitle}</button></div>
-        <div>{slots[selectedSlot] ? <><AgentIcon launcher={slots[selectedSlot]!.launcher}/><strong>{records[selectedSlot]?.title || slots[selectedSlot]!.launcher}</strong><span>终端 {String(selectedSlot + 1).padStart(2, '0')}</span><i className={listError || readIssues[slots[selectedSlot]!.id] || slots[selectedSlot]!.state === 'disconnected' ? 'is-offline' : ''}>{listError || readIssues[slots[selectedSlot]!.id] ? '恢复连接中' : slots[selectedSlot]!.state === 'reconnecting' ? 'SSH 重连中' : slots[selectedSlot]!.state === 'disconnected' ? 'SSH 已断开' : slots[selectedSlot]!.state === 'running' ? '运行中' : '已结束'}</i></> : <span>选择一个终端，开始任务</span>}</div>
+        <div><UiIcon name="chat"/><button disabled={!onShowConversation} onClick={onShowConversation} title={`${contextLabel} · ${conversationTitle}`}>{conversationTitle}</button></div>
+        {auxiliary && slots[selectedSlot] && <div className="dt-current-target"><AgentIcon launcher={slots[selectedSlot]!.launcher}/><strong>{records[selectedSlot]?.title || slots[selectedSlot]!.launcher}</strong><span>#{String(selectedSlot + 1).padStart(2, '0')}</span></div>}
+      </div>
+      <HandoffSummary tasks={handoffs.tasks} onOpen={() => openHandoff('records')}/>
       </div>
       {terminalNavigation.length > 0 && <div className="dt-hidden-panes" aria-label="切换终端"><span>{compact ? '切换终端' : '已收起 · 进程保留'}</span>{terminalNavigation.map(({terminal, index}) =>
         <button key={terminal.id} onClick={() => showSlot(index)} title={`切换到终端 ${index + 1}`}>
           {String(index + 1).padStart(2, '0')} {records[index]?.title || terminal.launcher}</button>)}
         {!compact && <button onClick={() => selectPreset(slots.filter(Boolean).length <= 2 ? 'horizontal' : slots.filter(Boolean).length <= 3 ? 'main' : slots.filter(Boolean).length <= 6 ? 'six' : 'twelve')}>显示全部</button>}
       </div>}
-      <div className="dt-group-strip" aria-label="终端讨论组">
-        <span className="dt-group-strip-label">讨论组</span>
+      {(showGroups || groupDragging) && <div className="dt-group-strip" aria-label="终端讨论组">
         {groups.groups.map(group => <button type="button" key={group.id}
           className={`${showGroups && groups.selectedId === group.id ? 'is-selected' : ''}${groupDropTarget === group.id ? ' is-drop-target' : ''}`}
           onClick={() => {groups.select(group.id);setAuxiliary('groups');}}
@@ -539,11 +553,9 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
           onClick={() => {groups.select(undefined);setAuxiliary('groups');}}
           onDragOver={event => {if (event.dataTransfer.types.includes('application/x-dsh-terminal')) {event.preventDefault();event.dataTransfer.dropEffect='copy';setGroupDropTarget('new');}}}
           onDragLeave={() => setGroupDropTarget(null)} onDrop={event => dropTerminal(event)}>
-          ＋ {groups.groups.length ? '新建讨论组' : '组建讨论组 · 可拖入终端'}</button>
+          <UiIcon name="plus"/> 新建讨论组</button>
+      </div>}
       </div>
-      </div>
-      <div className="dt-workspace-context"><span className="dt-context-label">{selectedExecution?.kind === 'ssh' ? `SSH · ${selectedExecution.label}` : '本机工作目录'}</span><span className="dt-cwd" title={selectedCwd}>{selectedCwd || (loading ? '读取中…' : '暂不可用')}</span><span className="dt-context-hint">{contextLabel}</span></div>
-      <HandoffSummary tasks={handoffs.tasks} onOpen={() => openHandoff('records')}/>
       <TerminalGroupPanel bridge={bridge} state={groups} opened={showGroups} seed={groupSeed} excerpt={excerpt}
         terminals={terminals.map(terminal => {const index = slots.findIndex(item => item?.id === terminal.id); return {...terminal, title: records[index]?.title, number: index + 1};})}
         onClose={closeAuxiliary} onHandoff={groupHandoff}
@@ -587,7 +599,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
             {terminal ? <PaneBoundary><TerminalPane theme={appearance.resolved}
               terminal={terminal} bridge={bridge} viewerId={viewerId} number={index + 1} connected={!listError}
               onAddToGroup={isRemote ? undefined : () => addToGroup(terminal.id, groups.selectedId)}
-              onGroupDragStart={isRemote ? undefined : event => {event.dataTransfer.effectAllowed = 'copy';event.dataTransfer.setData('application/x-dsh-terminal', JSON.stringify({sessionId,terminalId:terminal.id}));}}
+              onGroupDragStart={isRemote ? undefined : event => {setGroupDragging(true);event.dataTransfer.effectAllowed = 'copy';event.dataTransfer.setData('application/x-dsh-terminal', JSON.stringify({sessionId,terminalId:terminal.id}));}}
               naturalOpen={naturalOpen} onNaturalToggle={value => {setNaturalViews(previous => ({...previous, [terminal.id]: value})); if (value) setAuxiliary(null);}}
               naturalContent={isRemote ? undefined : <NativeTerminalTask bridge={bridge} sessionId={sessionId}
                 target={{id: terminal.id, launcher: terminal.launcher, title: records[index]?.title, number: index + 1}}
@@ -611,25 +623,31 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
               onReconnected={updated => {mutationRef.current += 1;setSlots(previous=>previous.map(item=>item?.id===updated.id?updated:item));}}
               onClosed={() => onClosed(terminal.id)} onState={(state, exitCode) => onState(terminal.id, state, exitCode)}
             /></PaneBoundary> : <div className={`dt-empty-pane${selectedSlot === index ? ' is-selected' : ''}`}
-              onPointerDown={() => { setSelectedSlot(index); setFocused(null); }}>
+              onPointerDown={event => { if(event.target === event.currentTarget) {setSelectedSlot(index);setFocused(null);} }}>
               <span className="dt-empty-number">{String(index + 1).padStart(2, '0')}</span>
               {visibleSlots.length > 1 && <button className="dt-empty-hide" disabled={Boolean(opening[index])}
-                aria-label={`收起空窗格 ${index + 1}`} title="收起此空窗格" onClick={() => hideEmpty(index)}>×</button>}
+                aria-label={`收起空窗格 ${index + 1}`} title="收起此窗格" onClick={() => hideEmpty(index)}><UiIcon name="close" size={14}/></button>}
               {loaded && records[index] && <div className="dt-restore-card"><strong>{records[index]!.title || records[index]!.launcher}</strong>{records[index]!.execution?.kind === 'ssh' ? <><p>远端 · {records[index]!.execution!.label}<br/>{records[index]!.execution!.cwd}</p><p>远端记录已保留。请重新选择主机并检查连接；这里不会自动重启原任务。</p><button disabled={Boolean(opening[index])||Boolean(listError)} onClick={() => {const saved = records[index]!.execution!;setLaunchLocations(previous=>({...previous,[index]:'ssh'}));if(saved.targetId)setRemoteSeeds(previous=>({...previous,[index]:{targetId:saved.targetId!,cwd:saved.cwd}}));setRecords(previous=>previous.map((item,i)=>i===index?null:item));}}>重新选择远端</button></> : <><p>已保留任务名称与布局。重新启动将打开一个新终端。</p><button disabled={Boolean(opening[index])||Boolean(listError)} onClick={()=>{void open(index,records[index]!.launcher)}}>重新启动</button></>}<button onClick={()=>setRecords(previous=>previous.map((item,i)=>i===index?null:item))}>移除记录</button></div>}
-              {!(loaded && records[index]) && <><div className="dt-launch-location" role="group" aria-label={`终端 ${index + 1} 执行位置`}>{([['local','本机'],['ssh','SSH 远程']] as const).map(([location,label]) => <button key={location} type="button" aria-pressed={(launchLocations[index] ?? 'local') === location} disabled={Boolean(opening[index])} onClick={() => setLaunchLocations(previous=>({...previous,[index]:location}))}>{label}</button>)}</div>{launchLocations[index] === 'ssh' ? <RemoteLauncher bridge={bridge} initial={remoteSeeds[index]} launchState={opening[index]} onDestinationChange={destination=>setRemoteSeeds(previous=>({...previous,[index]:destination}))} disabled={Boolean(opening[index]) || loading || Boolean(listError)} onLaunch={(launcher,remote)=>{void open(index,launcher,remote);}}/> : <><span className="dt-empty-prompt">&gt;_</span>
-              <strong>{opening[index] === 'pending' ? '正在启动…' : opening[index] === 'uncertain' ? '等待确认启动结果' : '在这里，开始工作。'}</strong>
-              <span className="dt-empty-description">用自然语言处理任务，或打开你的智能体</span>
-              <button className="dt-natural-start" disabled={Boolean(opening[index]) || loading || Boolean(listError)} onClick={() => {void open(index, 'shell', undefined, true);}}>✦ 打开 AI 终端</button>
-              <div className="dt-launchers">{launchers.filter(item => ['shell','codex','claude','kimi'].includes(item.id)).map(launcher => <button key={launcher.id}
-                disabled={!launcher.available || Boolean(opening[index]) || loading || Boolean(listError)}
-                title={launcher.available ? `启动 ${launcher.label}` : `${launcher.label} 尚未安装或不可用`}
-                onClick={() => { void open(index, launcher.id); }}><AgentIcon launcher={launcher.id} /><span className="dt-launcher-name">{launcher.label}</span>{!launcher.available && <span>未安装</span>}</button>)}</div>
-              <button className="dt-all-agents" onClick={() => setAuxiliary('agents')}>全部智能体 <span>↗</span></button>
-              <details className="dt-custom-disclosure"><summary>使用其他命令</summary><form className="dt-custom-cli" onSubmit={event => { event.preventDefault(); const command = customCli.trim(); if (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(command)) void open(index, command); }}>
-                <input aria-label={`窗格 ${index + 1} 的其他本地 CLI`} placeholder="其他本地 CLI，如 piagent" maxLength={64}
-                  value={customCli} onChange={event => setCustomCli(event.target.value)} />
-                <button disabled={!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(customCli.trim()) || Boolean(opening[index]) || loading || Boolean(listError)}>启动</button>
-              </form></details></>}</>}
+              {!(loaded && records[index]) && (selectedSlot !== index && !opening[index] ?
+                <button className="dt-empty-invite" aria-label={`在窗格 ${index + 1} 选择终端`} onClick={() => {setSelectedSlot(index);setFocused(null);}}>
+                  <span><UiIcon name="plus" size={23}/></span><strong>添加终端</strong>
+                </button> : <div className="dt-launch-card">
+                <div className="dt-launch-location" role="group" aria-label={`终端 ${index + 1} 执行位置`}>{([['local','本机'],['ssh','SSH']] as const).map(([location,label]) => <button key={location} type="button" aria-label={location === 'ssh' ? 'SSH 远程' : '本机'} aria-pressed={(launchLocations[index] ?? 'local') === location} disabled={Boolean(opening[index])} onClick={() => setLaunchLocations(previous=>({...previous,[index]:location}))}><UiIcon name={location === 'ssh' ? 'cloud' : 'monitor'} size={14}/>{label}</button>)}</div>
+                {launchLocations[index] === 'ssh' ? <RemoteLauncher bridge={bridge} initial={remoteSeeds[index]} launchState={opening[index]} onDestinationChange={destination=>setRemoteSeeds(previous=>({...previous,[index]:destination}))} disabled={Boolean(opening[index]) || loading || Boolean(listError)} onLaunch={(launcher,remote)=>{void open(index,launcher,remote);}}/> : <>
+                <h2 className="dt-launch-title">{opening[index] === 'pending' ? '正在启动…' : opening[index] === 'uncertain' ? '等待启动结果' : '从这里开始'}</h2>
+                <button className="dt-natural-start" aria-label="打开 AI 终端" disabled={Boolean(opening[index]) || loading || Boolean(listError)} onClick={() => {void open(index, 'shell', undefined, true);}}><UiIcon name="sparkles" size={19}/><span>AI 任务</span><UiIcon name="arrowUpRight" size={17}/></button>
+                <div className="dt-launch-separator"><span>或使用 CLI</span></div>
+                <div className="dt-launchers dt-launch-favorites">{launchers.filter(item => ['shell','codex','claude','kimi'].includes(item.id)).map(launcher => <button key={launcher.id}
+                  disabled={!launcher.available || Boolean(opening[index]) || loading || Boolean(listError)}
+                  title={launcher.available ? `启动 ${launcher.label}` : `${launcher.label} 尚未安装或不可用`}
+                  onClick={() => { void open(index, launcher.id); }}><span className="dt-launch-icon"><AgentIcon launcher={launcher.id}/></span><span className="dt-launcher-name">{launcher.id === 'claude' ? 'Claude' : launcher.id === 'kimi' ? 'Kimi' : launcher.label}</span></button>)}</div>
+                <div className="dt-launch-secondary"><button className="dt-all-agents" onClick={() => setAuxiliary('agents')}>全部智能体<UiIcon name="chevronRight" size={13}/></button>
+                <details className="dt-custom-disclosure"><summary>运行命令</summary><form className="dt-custom-cli" onSubmit={event => { event.preventDefault(); const command = customCli.trim(); if (/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(command)) void open(index, command); }}>
+                  <input aria-label={`窗格 ${index + 1} 的其他本地 CLI`} placeholder="CLI 名称，如 piagent" maxLength={64}
+                    value={customCli} onChange={event => setCustomCli(event.target.value)} />
+                  <button disabled={!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(customCli.trim()) || Boolean(opening[index]) || loading || Boolean(listError)}>启动</button>
+                </form></details></div></>}
+                </div>)}
               {loading && <span className="dt-empty-description">正在读取可用 CLI…</span>}
               {opening[index] === 'uncertain' && <button className="dt-toolbar-button" onClick={() => { void refresh(true); }}>刷新列表确认</button>}
             </div>}
@@ -658,7 +676,7 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
         />)}
       </div>
       </div>
-      <footer className="dt-workspace-footer"><span>{viewportSize.width > 0 && geometry.width > viewportSize.width ? '布局可横向滚动 · ' : ''}拖动分隔线调大小 · Alt + Shift + 方向键切焦点 / Enter 放大</span><span>收起保留任务 · 结束任务会停止运行</span></footer>
+      <footer className="dt-workspace-footer"><span>{visibleSlots.length} 个窗格{viewportSize.width > 0 && geometry.width > viewportSize.width ? ' · 可横向滚动' : ''}</span><details className="dt-shortcuts"><summary><UiIcon name="command" size={12}/>快捷键</summary><div><span>调整大小 <b>拖动分隔线</b></span><span>切换终端 <b>Alt + Shift + 方向键</b></span><span>放大终端 <b>Alt + Shift + Enter</b></span></div></details></footer>
     </div>
   );
 }

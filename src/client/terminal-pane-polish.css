@@ -1,0 +1,58 @@
+.dsh-terminal-workspace .dt-pane.dt-terminal-pane{container:terminal-pane / inline-size;border-radius:10px;background:var(--dt-panel);border-color:var(--dt-border);box-shadow:0 1px 3px var(--dt-shadow)}
+.dsh-terminal-workspace .dt-pane.dt-terminal-pane.is-focused{border-color:var(--dt-accent-border);box-shadow:0 0 0 1px var(--dt-focus-halo)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-bar{height:43px;min-height:43px;padding:5px 9px 5px 12px;gap:7px;background:var(--dt-panel);border-bottom:1px solid var(--dt-border-subtle)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-bar>.dt-agent-icon{width:17px;height:17px}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-number{font-size:10px;color:var(--dt-faint);letter-spacing:.3px}
+.dsh-terminal-workspace .dt-terminal-pane button.dt-pane-title{font-size:12px;line-height:1.5;font-weight:550;letter-spacing:-.15px;max-width:240px;min-width:24px;overflow:hidden;text-overflow:ellipsis;border-radius:4px;padding:4px 2px}
+.dsh-terminal-workspace .dt-terminal-pane button.dt-pane-title:hover{background:var(--dt-subtle)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-title-input{flex:1;max-width:45%;min-width:35px;width:150px;font-size:12px;padding:5px 7px;border-radius:5px;background:var(--dt-surface)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-state{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;font-size:10px;color:var(--dt-muted);max-width:106px}
+.dt-pane-state>i{display:block;width:5px;height:5px;background:currentColor;border-radius:50%;flex-shrink:0}
+.dt-pane-state>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dsh-terminal-workspace .dt-terminal-pane .dt-state-running{color:var(--dt-success)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-state:is(.dt-state-error,.dt-state-cleanup-error,.is-offline){color:var(--dt-danger)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-state-disconnected{color:var(--dt-warning)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-bell{font-size:9px;border-radius:5px;padding:3px 5px}
+.dt-pane-actions{display:flex;align-items:center;gap:1px;margin-left:auto;flex-shrink:0}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-action,.dt-pane-menu>summary{display:flex;align-items:center;justify-content:center;min-width:28px;width:28px;height:30px;min-height:30px;padding:5px;border:1px solid transparent;border-radius:6px;color:var(--dt-muted);background:transparent;cursor:pointer}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-action:hover:not(:disabled),.dt-pane-menu>summary:hover{background:var(--dt-hover);color:var(--dt-text)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-action:disabled{opacity:.35}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-action.dt-close:hover:not(:disabled){background:var(--dt-danger-soft);color:var(--dt-danger)}
+.dt-pane-actions .dt-ui-icon,.dt-pane-footer .dt-ui-icon{display:block;width:16px;height:16px;flex-shrink:0}
+.dt-pane-menu{position:relative}
+.dt-pane-menu>summary{list-style:none;opacity:.5;transition:opacity .12s}
+.dt-pane-menu>summary::-webkit-details-marker{display:none}
+.dt-terminal-pane:is(:hover,:focus-within) .dt-pane-menu>summary,.dt-pane-menu[open]>summary{opacity:1}
+.dt-pane-menu-items{position:absolute;right:0;top:calc(100% + 5px);width:166px;padding:5px;z-index:25;border:1px solid var(--dt-border);border-radius:9px;background:var(--dt-surface);box-shadow:0 8px 24px var(--dt-shadow-floating)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-menu-items button{display:flex;align-items:center;gap:9px;width:100%;min-height:33px;padding:7px 9px;border:0;border-radius:5px;font-size:11px;text-align:left;color:var(--dt-secondary)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-menu-items button:hover{background:var(--dt-hover);color:var(--dt-text)}
+.dt-pane-subbar{display:flex;align-items:center;gap:10px;min-height:42px;padding:5px 10px;border-bottom:1px solid var(--dt-border-subtle);flex-shrink:0;background:var(--dt-panel)}
+.dt-pane-location{display:flex;align-items:center;gap:7px;min-width:0;margin-left:auto;font-size:10px;color:var(--dt-muted)}
+.dt-pane-location>span{flex-shrink:0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.dt-pane-location code{min-width:0;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:10px ui-monospace,SFMono-Regular,monospace;color:var(--dt-faint)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-footer{min-height:31px;gap:8px;padding:3px 10px;font-size:10px;background:var(--dt-panel);border-top:1px solid var(--dt-border-subtle);color:var(--dt-faint)}
+.dt-terminal-meta{font-variant-numeric:tabular-nums}
+.dsh-terminal-workspace .dt-terminal-pane .dt-font-controls{gap:1px;opacity:.48;transition:opacity .12s}
+.dsh-terminal-workspace .dt-terminal-pane:is(:hover,:focus-within) .dt-font-controls{opacity:1}
+.dsh-terminal-workspace .dt-terminal-pane .dt-font-controls button{min-width:23px;min-height:24px;font-size:10px;padding:3px;border-radius:4px}
+.dsh-terminal-workspace .dt-terminal-pane .dt-scroll-bottom{display:flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;padding:4px;border-radius:4px}
+.dsh-terminal-workspace .dt-terminal-pane .dt-writer{display:inline-flex;align-items:center;gap:5px;color:var(--dt-muted);font-size:9px;white-space:nowrap}
+.dt-writer>i{width:4px;height:4px;border-radius:50%;background:var(--dt-success)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-claim{min-height:25px;padding:3px 7px;font-size:10px;border:1px solid var(--dt-accent-border);border-radius:5px;background:var(--dt-accent-soft);color:var(--dt-accent)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-interrupt{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:25px;padding:3px 6px;font-size:9px;border:1px solid var(--dt-border);border-radius:5px;color:var(--dt-muted)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-interrupt .dt-ui-icon{width:11px;height:11px}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-confirm{padding:11px 13px;gap:9px;border-bottom:1px solid var(--dt-danger-border);background:var(--dt-danger-soft);color:var(--dt-danger)}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-confirm button{min-height:30px;border-radius:6px;padding:6px 10px;font-size:11px}
+.dsh-terminal-workspace .dt-terminal-pane .dt-pane-notice{padding:8px 11px;font-size:11px;line-height:1.6}
+@container terminal-pane (max-width:380px){
+  .dsh-terminal-workspace .dt-terminal-pane .dt-pane-bar{padding-inline:8px;gap:5px}
+  .dsh-terminal-workspace .dt-terminal-pane .dt-pane-number{display:none}
+  .dsh-terminal-workspace .dt-terminal-pane button.dt-pane-title{font-size:11px;max-width:145px}
+  .dsh-terminal-workspace .dt-terminal-pane .dt-pane-action,.dt-pane-menu>summary{width:26px;min-width:26px}
+  .dt-pane-subbar{padding-inline:8px;gap:8px}
+  .dt-pane-location{gap:5px}
+  .dt-pane-location>span{max-width:110px}
+  .dsh-terminal-workspace .dt-terminal-pane .dt-pane-footer{gap:5px;padding-inline:8px}
+  .dsh-terminal-workspace .dt-terminal-pane .dt-terminal-meta:first-child{display:none}
+}
+@media(hover:none){.dt-pane-menu>summary,.dsh-terminal-workspace .dt-terminal-pane .dt-font-controls{opacity:1}}

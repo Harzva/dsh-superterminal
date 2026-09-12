@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives';
 import { NativeResultReader } from './native-result-reader';
 import type { ResultPreviewInfo, ReadNativeResult } from './result-types';
-import { AgentIcon } from './agent-icon';
+import { UiIcon } from './ui-icon';
 import css from './terminal-run-panel.css';
 
 export interface NativeRunTarget { id: string; title?: string; launcher: string; number?: number }
@@ -51,15 +51,15 @@ const stepLabels = {
   queued: '等待执行', pending: '等待执行', running: '执行中', completed: '已完成', succeeded: '已完成',
   failed: '失败', cancelled: '已停止', interrupted: '已中断',
 };
-const seedPrompts = ['检查当前项目', '修复选中的报错', '运行测试并分析失败'];
+const seedPrompts = [{label:'检查项目', prompt:'检查当前项目'}, {label:'修复报错', prompt:'修复选中的报错'}, {label:'运行测试', prompt:'运行测试并分析失败'}];
 const markdownCodeLabels = {copyLabel: '复制代码', copiedLabel: '已复制'};
 
 function RunMessage({message, readResult}: {message: NativeRunMessage; readResult?: ReadNativeResult}) {
   if (message.role === 'tool') return <details className={`dt-native-step is-${message.status ?? 'unknown'}`}>
-    <summary><span className="dt-native-step-icon" aria-hidden="true">{message.status === 'failed' ? '!' : '›_'}</span>
+    <summary><span className="dt-native-step-icon" aria-hidden="true"><UiIcon name="terminal" size={14}/></span>
       <span className="dt-native-step-title">{message.title || '工具执行'}</span>
       {message.status && <span className="dt-native-step-status">{stepLabels[message.status]}</span>}
-      <span className="dt-native-step-chevron" aria-hidden="true">⌄</span>
+      <span className="dt-native-step-chevron" aria-hidden="true"><UiIcon name="chevronDown" size={14}/></span>
     </summary>
     <div className="dt-native-step-detail"><pre>{message.text || '此步骤没有文本输出。'}</pre><NativeResultReader result={message}/></div>
   </details>;
@@ -151,35 +151,37 @@ export function NativeRunPanel({target, state, draft, onDraftChange, onSend, onS
   return <section className={`dt-native-run is-${state.status}`} aria-label="AI 任务">
     <style>{css}</style>
     <header className="dt-native-run-header">
-      <div className="dt-native-run-brand"><span className="dt-native-run-mark" aria-hidden="true">✦</span><span>DSH AI</span>
-        <span className={`dt-native-run-status${connected ? '' : ' is-disconnected'}`} role="status"><i/>{connected ? state.groupId ? '正在讨论组发言' : runLabels[state.status] : '连接中断'}</span>
+      <div className="dt-native-run-brand">
+        <span className="dt-native-run-brand-name"><UiIcon name="sparkles" size={14}/>DSH AI</span>
+        <button className="dt-native-run-target" disabled={!target || !onOpenTerminal} onClick={() => { if (target) onOpenTerminal?.(target.id); }}
+          aria-label={`正在帮助 ${title}`} title={target ? `打开 ${title}` : '请先选择目标终端'}>
+          <small>协助</small><strong>{title}</strong>{target && onOpenTerminal && <UiIcon name="arrowUpRight" size={12}/>}
+        </button>
+        <span className={`dt-native-run-status${connected ? '' : ' is-disconnected'}`} role="status"><i/>{connected ? state.groupId ? '讨论中' : runLabels[state.status] : '连接中断'}</span>
       </div>
-      <button className="dt-native-run-target" disabled={!target || !onOpenTerminal} onClick={() => { if (target) onOpenTerminal?.(target.id); }} title={target ? `打开 ${title}` : '请先选择目标终端'}>
-        <AgentIcon launcher={target?.launcher || 'shell'}/><span><small>当前任务终端</small><strong>{title}</strong></span>{target && onOpenTerminal && <span className="dt-native-target-arrow" aria-hidden="true">↗</span>}
-      </button>
       <div className="dt-native-run-context"><span title={state.model || '模型尚未提供'}><i>模型</i>{state.model || '待确认'}</span><span title={state.permission || '工作区权限尚未提供'}><i>权限</i>{state.permission || '待确认'}</span></div>
     </header>
     <div className="dt-native-run-scroll" ref={scrollRef} role="log" aria-label="任务与执行步骤" aria-live="polite" aria-relevant="additions text"
       onScroll={event => { const node = event.currentTarget; pinned.current = node.scrollHeight - node.scrollTop - node.clientHeight < 64; if (pinned.current) setUnseen(false); }}>
-      {!state.messages.length && <div className="dt-native-run-empty"><span aria-hidden="true">›_</span><h3>说说你想完成什么</h3><p>把目标告诉 DSH，执行步骤和结果会留在这里。</p>
-        <div className="dt-native-run-prompts">{seedPrompts.map(prompt => <button key={prompt} disabled={!target || busy || stopping || Boolean(action)} onClick={() => { onDraftChange(prompt); composerRef.current?.focus(); }}><span>{prompt}</span><span aria-hidden="true">↗</span></button>)}</div>
+      {!state.messages.length && <div className="dt-native-run-empty"><UiIcon name="sparkles" size={22}/><h3>从一个目标开始</h3>
+        <div className="dt-native-run-prompts">{seedPrompts.map(({label,prompt}) => <button key={prompt} title={prompt} disabled={!target || busy || stopping || Boolean(action)} onClick={() => { onDraftChange(prompt); composerRef.current?.focus(); }}><span>{label}</span><UiIcon name="arrowUpRight" size={12}/></button>)}</div>
       </div>}
       <div className="dt-native-run-timeline">{state.messages.map(message => <RunMessage key={message.id} message={message} readResult={readResult}/>)}</div>
       {running && <div className="dt-native-run-active" role="status"><i aria-hidden="true"/><span>任务执行中{lastMessage?.role === 'tool' && lastMessage.status === 'running' && lastMessage.title ? ` · ${lastMessage.title}` : ''}</span></div>}
       {stopping && <p className="dt-native-run-stopping" role="status">{retryStop ? '停止尚未确认，可以再次尝试。' : '正在等待当前执行停止。'}</p>}
     </div>
-    {unseen && <button className="dt-native-run-latest" onClick={latest}>查看最新进展 <span aria-hidden="true">↓</span></button>}
+    {unseen && <button className="dt-native-run-latest" onClick={latest}>查看最新进展 <UiIcon name="arrowDown" size={13}/></button>}
     <footer className="dt-native-run-footer">
-      {state.groupId && <p className="dt-native-run-feedback" role="status">正在参加讨论组。可先写下下一项任务，发言结束后再发送；停止请前往讨论组。</p>}
-      {!connected && showRecoveryNotice && <p className="dt-native-run-feedback" role="status">连接恢复后可继续，当前记录与草稿仍保留。</p>}
+      {state.groupId && <p className="dt-native-run-feedback" role="status">讨论组发言中，结束后可发送。停止请前往讨论组。</p>}
+      {!connected && showRecoveryNotice && <p className="dt-native-run-feedback" role="status">正在恢复连接，记录与草稿已保留。</p>}
       {pendingSend && !busy && <div className="dt-native-run-pending">
         <span role="status">上次发送待确认</span>
         {onRetrySend && <button type="button" disabled={!canRetrySend} onClick={() => { void retrySend(); }}>{action === 'retry' ? '正在核对…' : '核对上次发送'}</button>}
       </div>}
       {(state.error || actionError) && <p className="dt-native-run-feedback is-error" role="alert">{state.error || actionError}</p>}
       {sharedExcerpt && <div className={`dt-native-run-attachment${excerptMatches ? '' : ' is-mismatch'}`}>
-        <div><span>{excerptMatches ? `已附上选中内容 · ${sharedExcerpt.text.length.toLocaleString()} 字符` : '选中内容来自其他终端，请重新选择'}</span>
-          {onClearExcerpt && <button type="button" aria-label="移除附上的终端内容" onClick={onClearExcerpt}>×</button>}</div>
+        <div><span>{excerptMatches ? `已附选区 · ${sharedExcerpt.text.length.toLocaleString()} 字符` : '选中内容来自其他终端，请重新选择'}</span>
+          {onClearExcerpt && <button type="button" aria-label="移除附上的终端内容" onClick={onClearExcerpt}><UiIcon name="close" size={14}/></button>}</div>
         <details><summary>查看附上的内容</summary><pre>{sharedExcerpt.text}</pre></details>
       </div>}
       <form className="dt-native-run-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
@@ -192,9 +194,9 @@ export function NativeRunPanel({target, state, draft, onDraftChange, onSend, onS
             if (event.key !== 'Enter' || event.shiftKey || composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
             event.preventDefault(); void send();
           }}/>
-        <div className="dt-native-run-composer-actions"><span>{running ? '追加到当前任务' : 'Enter 发送 · Shift+Enter 换行'}</span>
-          <div>{showStop && <button className="dt-native-run-stop" type="button" disabled={!canStop} aria-label="停止 AI 会话" onClick={() => { void stop(); }}><span aria-hidden="true">■</span>{stopLabel}</button>}
-            <button className="dt-native-run-send" type="submit" disabled={!canSend} aria-label={running ? '发送追加要求' : '发送任务'}><span>{action === 'send' ? '发送中' : running ? '追加要求' : '发送'}</span><span aria-hidden="true">↑</span></button></div>
+        <div className="dt-native-run-composer-actions"><span title="Enter 发送 · Shift+Enter 换行">{running ? '追加到当前任务' : 'Enter 发送'}</span>
+          <div>{showStop && <button className="dt-native-run-stop" type="button" disabled={!canStop} aria-label="停止 AI 会话" onClick={() => { void stop(); }}><UiIcon name="stop" size={13}/>{stopLabel}</button>}
+            <button className="dt-native-run-send" type="submit" disabled={!canSend} aria-label={running ? '发送追加要求' : '发送任务'}><span>{action === 'send' ? '发送中' : running ? '追加要求' : '发送'}</span><UiIcon name="arrowUp" size={15}/></button></div>
         </div>
       </form>
     </footer>

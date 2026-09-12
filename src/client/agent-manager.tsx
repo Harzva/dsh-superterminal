@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AgentIcon } from './agent-icon';
+import { UiIcon } from './ui-icon';
 import type { TerminalBridge, AgentRecord } from './types';
 export { AgentManager } from './agent-library';
 export type { AssistantTarget } from './assistant-memory';
@@ -84,25 +85,27 @@ export function SmartAssistant({ bridge, sessionId, conversationTitle, contextLa
   const copyLabel = (key: string, fallback: string) => copied[key] === 'copied' ? '已复制' : copied[key] === 'failed' ? '复制失败，请手动复制' : fallback;
   const visibleResult = result?.target.id === target?.id ? result : undefined;
 
-  return <section className="dt-smart" aria-label="智能建议">
-    <div className="dt-assistant-owner" title={conversationTitle}>{contextLabel} · {conversationTitle}</div>
-    <header className="dt-smart-header"><span className="dt-ai-orb">✦</span><div><h3>终端助手</h3><span>由 DSH 驱动</span></div><button aria-label="关闭智能建议" onClick={onClose}>×</button></header>
-    {target ? <div className="dt-assistant-target"><AgentIcon launcher={target.launcher}/><div><span>正在帮助</span><strong>{targetName(target)}</strong>{target.title && <small>{agentNames[target.launcher] || target.launcher} · 终端 {String(target.number ?? 1).padStart(2,'0')}</small>}</div></div> : <div className="dt-assistant-empty" role="status"><strong>先选择一个终端</strong><p>点击要处理的终端，助手会围绕它提供建议。</p></div>}
-    {target?.execution?.kind === 'ssh' && <div className="dt-remote-advice-note" role="note"><strong>建议用于 {target.execution.label}</strong><span>{target.execution.cwd}</span><p>仅根据问题和你共享的输出提供建议，不访问远端文件，也不执行命令。请在远端 Agent CLI 中执行任务。</p></div>}
-    <div className="dt-smart-intro"><span className="dt-eyebrow">A LITTLE HELP, RIGHT HERE</span><h2>一起，找到下一步。</h2><p>描述任务，或选取一段终端输出。<br/>生成的命令可以先放进草稿，检查后再使用。</p></div>
-    {!visibleResult && !busy && <div className="dt-prompt-chips">{['查看端口占用', '解释一段报错', '检查 Git 工作区'].map(label => <button key={label} disabled={!target} onClick={() => setPrompt(label === '查看端口占用' ? '如何只读查看 3000 端口的占用？' : label === '检查 Git 工作区' ? '如何只读查看 Git 工作区的变更状态？' : '请解释这段终端输出，并建议下一步：')}>{label}<span>↗</span></button>)}</div>}
+  return <section className="dt-smart dt-smart-refined" aria-label="智能建议">
+    <header className="dt-smart-header"><UiIcon name="sparkles" size={17}/><h3>终端助手</h3><button aria-label="关闭智能建议" title="关闭助手" onClick={onClose}><UiIcon name="close"/></button></header>
+    <div className="dt-assistant-owner" title={`${contextLabel} · ${conversationTitle}`}><UiIcon name="chat" size={13}/><span>{contextLabel} · {conversationTitle}</span></div>
+    {!target ? <div className="dt-assistant-empty" role="status"><UiIcon name="terminal" size={22}/><span>先选择一个终端</span></div> : <>
+    <div className="dt-assistant-target"><AgentIcon launcher={target.launcher}/><div><span>正在帮助</span><strong>{targetName(target)}</strong>{target.title && <small>{agentNames[target.launcher] || target.launcher} · 终端 {String(target.number ?? 1).padStart(2,'0')}</small>}</div></div>
+    {target.execution?.kind === 'ssh' && <div className="dt-remote-advice-note" role="note"><strong>远端 · {target.execution.label}</strong><span>{target.execution.cwd}</span><p>仅根据问题和共享的输出提供建议，不访问远端文件或执行命令。</p></div>}
+    {!visibleResult && !busy && <div className="dt-prompt-chips">{[
+      ['端口占用', '如何只读查看 3000 端口的占用？'],
+      ['解释报错', '请解释这段终端输出，并建议下一步：'],
+      ['Git 变更', '如何只读查看 Git 工作区的变更状态？'],
+    ].map(([label, question]) => <button key={label} onClick={() => setPrompt(question)}>{label}</button>)}</div>}
     {selectedOutput && <div className="dt-assistant-excerpt">
-      <div><span>选中的终端输出</span>{onClearExcerpt && <button onClick={clearExcerpt} aria-label="移除选中的输出">×</button>}</div>
+      <div><label><input type="checkbox" checked={includeOutput} onChange={event => setAttachExcerpt(event.target.checked ? excerptKey : undefined)}/>共享选中的输出</label>{onClearExcerpt && <button onClick={clearExcerpt} aria-label="移除选中的输出"><UiIcon name="close" size={14}/></button>}</div>
       <details><summary>预览 · {selectedOutput.length} 字符</summary><pre>{selectedOutput}</pre></details>
-      <label><input type="checkbox" checked={includeOutput} onChange={event => setAttachExcerpt(event.target.checked ? excerptKey : undefined)}/>附上这段输出</label>
-      <small>{includeOutput ? '这段内容将随你的问题发送给 DSH 模型。' : '尚未附上；勾选后才会发送。'}</small>
     </div>}
     <form onSubmit={event => { event.preventDefault(); void submit(); }}>
-      <textarea aria-label="终端任务" placeholder={target ? '例如：怎样找出占用 3000 端口的进程？' : '选择终端后，在这里描述任务'} disabled={!target} maxLength={4000} value={prompt} onChange={event => setPrompt(event.target.value)}/>
-      <button disabled={!target || !connected || busy || !prompt.trim()}>{busy ? '正在思考…' : '生成建议 ↑'}</button>
+      <textarea aria-label="终端任务" placeholder="描述问题，或询问下一步…" maxLength={4000} value={prompt} onChange={event => setPrompt(event.target.value)}/>
+      <button disabled={!connected || busy || !prompt.trim()}>{busy ? '正在思考…' : '生成建议'}<UiIcon name="arrowUp" size={15}/></button>
     </form>
     {!connected && <p className="dt-assistant-offline" role="status">终端连接正在恢复，草稿与上次建议已保留。</p>}
-    <div className="dt-ai-disclosure">发送本次问题、目标终端状态及你勾选的输出。不会自动附上其他终端或对话内容。</div>
+    <div className="dt-ai-disclosure">本次共享：问题、目标终端状态{includeOutput ? '、选中的输出。' : '；不含终端输出。'}<span>不附上其他终端或对话内容。</span></div>
     {error && <p role="alert">{error}</p>}
     {visibleResult && <div className="dt-smart-result">
       <div className="dt-assistant-result-target">建议用于 <strong>{targetName(visibleResult.target)}</strong><p>{visibleResult.prompt}</p><time>{new Date(visibleResult.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} · 保留的建议</time></div>
@@ -121,5 +124,6 @@ export function SmartAssistant({ bridge, sessionId, conversationTitle, contextLa
       })}
       <button onClick={() => { void copy('all', visibleResult.text); }}>{copyLabel('all', '复制建议')}</button><small>填入草稿不会发送到终端，也不会执行命令。</small>
     </div>}
+    </>}
   </section>;
 }
