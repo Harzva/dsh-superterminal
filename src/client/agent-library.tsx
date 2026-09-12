@@ -40,6 +40,7 @@ export function AgentManager({bridge, onLaunch, onClose, destination, launchDisa
   },[bridge,round]);
   async function check(agent: AgentRecord) {
     if (busy || error || checking.includes(agent.id)) return;
+    searchRef.current?.focus({preventScroll:true});
     const generation = epoch.current;
     setChecking(list=>[...list,agent.id]);setNotices(prev=>({...prev,[agent.id]:''}));
     try {
@@ -54,15 +55,20 @@ export function AgentManager({bridge, onLaunch, onClose, destination, launchDisa
   const visible=filterAgents(agents,query,filter);
   const blocked=error ? '检测失败，重新检测成功后可启动。' : busy ? '正在检测智能体，请稍候。' : !loaded ? '尚未确认安装状态。' : launchDisabledReason;
   const launchNoticeId=React.useId();
-  const retry=()=>setRound(value=>value+1);
-  return <section ref={panelRef} className="dt-manager dt-library-polished" role="dialog" aria-label="智能体管理" onKeyDown={event => {
+  const retry=()=>{if(busy||checking.length)return;searchRef.current?.focus({preventScroll:true});setRound(value=>value+1)};
+  return <section ref={panelRef} tabIndex={-1} className="dt-manager dt-library-polished" role="dialog" aria-label="智能体管理" onClick={event => {
+    const target=event.target;
+    if (target instanceof Element && !target.closest('button,input,textarea,select,summary,a[href],[contenteditable]:not([contenteditable="false"])')) {
+      panelRef.current?.focus({preventScroll:true});
+    }
+  }} onKeyDown={event => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
     if (event.key === 'Escape') {event.preventDefault();event.stopPropagation();onClose();return;}
     if (event.key !== 'Tab') return;
     const controls=Array.from(panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),summary,[tabindex="0"]') ?? []).filter(node=>node.getClientRects().length>0);
     const first=controls[0],last=controls.at(-1);
-    if (event.shiftKey && document.activeElement===first && last) {event.preventDefault();last.focus();}
-    else if (!event.shiftKey && document.activeElement===last && first) {event.preventDefault();first.focus();}
+    if (event.shiftKey && (document.activeElement===first || document.activeElement===panelRef.current) && last) {event.preventDefault();last.focus();}
+    else if (!event.shiftKey && (document.activeElement===last || document.activeElement===panelRef.current) && first) {event.preventDefault();first.focus();}
   }}><style>{css}{polishCss}</style>
     <div className="dt-manager-content"><header><div><h2>智能体</h2><p>{destination ? `本机 · 将在终端 ${String(destination).padStart(2,'0')} 中打开` : '本机 · 版本与可用状态'}</p></div><button type="button" className="dt-icon-action" onClick={onClose} aria-label="关闭智能体管理" title="返回终端"><UiIcon name="close" size={18}/></button></header>
       <div className="dt-library-toolbar">

@@ -116,6 +116,10 @@ export function TerminalPane(props: Props) {
   const [selectionOpen, setSelectionOpen] = useState(false);
   const [selectionPosition, setSelectionPosition] = useState({left: 8, top: 48});
   useEffect(() => { propsRef.current.onReadStatus?.(Boolean(readError)); }, [Boolean(readError)]);
+  useEffect(() => {
+    // Leaving a pane dismisses an unsubmitted choice, never the running task.
+    if (confirmClose && !closing && (!props.visible || !props.focused)) setConfirmClose(false);
+  }, [confirmClose, closing, props.visible, props.focused]);
 
   const commitTitle = () => {
     const value = titleDraft.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 48);
@@ -135,12 +139,17 @@ export function TerminalPane(props: Props) {
   const cancelClose = () => {
     setConfirmClose(false);
     requestAnimationFrame(() => {
+      if (!mountedRef.current || !propsRef.current.visible || !propsRef.current.focused) return;
+      const active = document.activeElement;
+      if (active && active !== document.body && !paneRef.current?.contains(active)) return;
       const trigger = closeButtonRef.current;
       if (trigger?.isConnected && trigger.getClientRects().length && !trigger.disabled) trigger.focus();
     });
   };
 
   const focusNativeTerminal = () => {
+    // Async input claims may complete after the confirmation was opened.
+    if (paneRef.current?.querySelector('.dt-pane-confirm')) return;
     const active = document.activeElement;
     if (active instanceof Element && paneRef.current?.contains(active) &&
       active.matches('button,select,summary,input:not(.xterm-helper-textarea),textarea:not(.xterm-helper-textarea),[contenteditable="true"]')) return;

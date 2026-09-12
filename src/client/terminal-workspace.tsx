@@ -11,6 +11,7 @@ import type { AssistantSeed } from './assistant-memory';
 import { RemoteLauncher, REMOTE_AI_NOTICE } from './remote-launcher';
 import type { RemoteDestination, TerminalExecution } from './types';
 import { TerminalPane } from './terminal-pane';
+import { workspaceShortcut } from './workspace-shortcut.mjs';
 import { NativeTerminalTask } from './native-terminal-task';
 import { SupervisorPanel } from './supervisor-panel';
 import { HandoffPanel, HandoffSummary, useHandoffs } from './handoff-panel';
@@ -356,7 +357,8 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
       const top = rect.y < viewport.scrollTop ? rect.y : rect.y + rect.height > viewport.scrollTop + viewport.clientHeight ? rect.y + rect.height - viewport.clientHeight : viewport.scrollTop;
       viewport.scrollTo({left: Math.max(0, left), top: Math.max(0, top), behavior: 'auto'});
       const pane = canvasRef.current?.querySelector<HTMLElement>(`[data-slot-index="${index}"]`);
-      const input = pane?.querySelector<HTMLElement>('.dt-pane-natural[aria-hidden="false"] textarea:not(:disabled), .dt-pane-native[aria-hidden="false"] .xterm-helper-textarea, .dt-natural-start:not(:disabled), .dt-empty-invite:not(:disabled), .dt-restore-card button:not(:disabled)');
+      const confirmation = pane?.querySelector('.dt-pane-confirm');
+      const input = confirmation ? confirmation.querySelector<HTMLElement>('button:not(:disabled)') : pane?.querySelector<HTMLElement>('.dt-pane-natural[aria-hidden="false"] textarea:not(:disabled), .dt-pane-native[aria-hidden="false"] .xterm-helper-textarea, .dt-natural-start:not(:disabled), .dt-empty-invite:not(:disabled), .dt-restore-card button:not(:disabled)');
       input?.focus({preventScroll: true});
       revealSlotRef.current = null;
     });
@@ -465,21 +467,24 @@ function WorkspaceSession({ bridge, sessionId, active = true, compact = false, c
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (!event.altKey || !event.shiftKey) return;
-    if (event.key === 'Enter' && focused) {
+    const target = event.target instanceof Element ? event.target : null;
+    const editing = Boolean(target?.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')) && !target?.matches('.xterm-helper-textarea');
+    const blocked = !active || Boolean(auxiliary) || Boolean(target?.closest('[role="dialog"],[role="alertdialog"]'));
+    const action = workspaceShortcut({key:event.key, altKey:event.altKey, shiftKey:event.shiftKey, ctrlKey:event.ctrlKey, metaKey:event.metaKey,
+      defaultPrevented:event.defaultPrevented, isComposing:event.nativeEvent.isComposing, keyCode:event.nativeEvent.keyCode}, blocked ? 'blocked' : editing ? 'editor' : 'terminal');
+    if (!action) return;
+    if (action === 'zoom') {
+      if (!focused) return;
       event.preventDefault();
       event.stopPropagation();
       setZoomed(previous => previous === focused ? null : focused);
       return;
     }
-    const directions = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' } as const;
-    const direction = directions[event.key as keyof typeof directions];
-    if (!direction) return;
     event.preventDefault();
     event.stopPropagation();
     const allGeometry = layoutGeometry(layout, viewportSize.width, viewportSize.height);
     const occupied: Record<number, Rect> = Object.fromEntries(Object.entries(allGeometry.panes).filter(([index]) => slots[Number(index)]));
-    const index = neighborSlot(occupied, selectedSlot, direction);
+    const index = neighborSlot(occupied, selectedSlot, action);
     if (index !== null && slots[index]) {
       showSlot(index, Boolean(zoomed));
     }
